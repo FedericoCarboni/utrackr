@@ -3,14 +3,17 @@ use tokio::net::UdpSocket;
 use std::net::{SocketAddr, IpAddr};
 use std::io;
 
+mod connections;
+mod packets;
+mod tracker;
+
 const MAX_PKT_SIZE: usize = 2048;
-const ERR_PKT_SIZE: usize = 64;
 const MIN_PKT_SIZE: usize = 16;
 const MIN_CONNECT_SIZE: usize = 16;
 const MIN_ANNOUNCE_SIZE: usize = 98;
 const MIN_SCRAPE_SIZE: usize = 98;
 
-const MAGIC_CONNECTION_ID: &'static [u8] = &0x41727101980i64.to_be_bytes();
+const PROTOCOL_ID: &'static [u8] = &0x41727101980i64.to_be_bytes();
 
 const ACTION_CONNECT: &'static [u8] = &0x0i32.to_be_bytes();
 const ACTION_ANNOUNCE: &'static [u8] = &0x1i32.to_be_bytes();
@@ -18,7 +21,7 @@ const ACTION_SCRAPE: &'static [u8] = &0x2i32.to_be_bytes();
 const ACTION_ERROR: &'static [u8] = &0x3i32.to_be_bytes();
 
 #[derive(Debug)]
-struct AnnouncePacket<'a>(&'a [u8]);
+pub struct AnnouncePacket<'a>(&'a [u8]);
 
 #[inline(always)]
 fn i64_at_offset(b: &[u8], offset: usize) -> i64 {
@@ -75,13 +78,24 @@ impl<'a> AnnouncePacket<'a> {
     }
 }
 
-#[derive(Debug)]
-pub struct UdpTrackerServer {
-    socket: UdpSocket,
-    secret: [u8; 16],
+pub trait Connector {
+    type Future: std::future::Future<Output = [u8; 8]>;
+    fn sync_connection_id(&self, addr: SocketAddr) -> [u8; 8];
+    fn connection_id(&self, addr: SocketAddr) -> Self::Future;
 }
 
-impl UdpTrackerServer {
+pub trait Announcer {
+    type Future: std::future::Future<Output = io::Result<Vec<(i32, u16)>>>;
+    fn announce(&mut self, packet: AnnouncePacket) -> Self::Future;
+}
+
+pub struct UdpTrackerServer<A: Announcer> {
+    socket: UdpSocket,
+    secret: [u8; 16],
+    announcer: A,
+}
+
+impl<A: Announcer> UdpTrackerServer<A> {
     pub async fn run(&self) -> io::Result<()> {
         loop {
             let mut pkt = [0u8; MAX_PKT_SIZE];
@@ -93,10 +107,6 @@ impl UdpTrackerServer {
             }
 
             let pkt = &pkt[..n];
-            dbg!(pkt);
-            dbg!(&pkt[8..12]);
-            dbg!(ACTION_CONNECT);
-            dbg!(&pkt[8..12] == ACTION_CONNECT);
 
             match &pkt[8..12] {
                 ACTION_CONNECT if n >= MIN_CONNECT_SIZE => self.connect(pkt, addr).await?,
@@ -117,7 +127,7 @@ impl UdpTrackerServer {
         c.sum64().to_ne_bytes()
     }
     async fn connect(&self, pkt: &[u8], addr: SocketAddr) -> io::Result<()> {
-        if &pkt[..8] != MAGIC_CONNECTION_ID {
+        if &pkt[..8] != PROTOCOL_ID {
             return Ok(());
         }
         println!("connect");
