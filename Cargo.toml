@@ -6,12 +6,4 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1", features = ["net", "macros"] }
-openssl = "0.10.38"
-crc64fast = "1.0"
-redis = { version = "0.21", features = ["aio", "tokio-comp"] }
-log = { version = "0.4", features = ["release_max_level_warn"] }
-fern = "0.6"
-
-[features]
-simd = ["crc64fast/pmull"]
+utrackr-core = { path = "./utrackr-core" }

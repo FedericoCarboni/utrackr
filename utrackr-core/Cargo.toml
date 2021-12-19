@@ -1,0 +1,10 @@
+[package]
+name = "utrackr-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "time", "net", "macros"] }
+openssl = "0.10.38"
+crc64fast = "1.0"
+log = { version = "0.4", features = ["release_max_level_warn"] }
