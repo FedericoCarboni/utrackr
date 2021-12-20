@@ -3,6 +3,7 @@ use std::io;
 use tokio::net::ToSocketAddrs;
 
 mod protocol;
+mod transaction;
 use protocol::UdpTracker;
 
 pub struct Tracker {
@@ -15,7 +16,7 @@ impl Tracker {
             udp: UdpTracker::bind(addrs).await?,
         })
     }
-    pub async fn run(&'static self) -> io::Result<()> {
+    pub async fn run(&self) -> io::Result<()> {
         self.udp.run_forever().await
     }
 }

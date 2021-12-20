@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 utrackr-core = { path = "./utrackr-core" }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "macros"] }
+fern = "0.6"
+log = { version = "0.4", features = ["release_max_level_warn"] }
