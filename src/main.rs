@@ -1,6 +1,6 @@
 use std::io;
 
-use utrackr_core::Tracker;
+use utrackr_core::UdpTracker;
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()
@@ -13,7 +13,6 @@ fn setup_logger() -> Result<(), fern::InitError> {
             ))
         })
         .chain(std::io::stdout())
-        .chain(fern::log_file("output.log")?)
         .apply()?;
     Ok(())
 }
@@ -22,7 +21,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
 async fn main() -> io::Result<()> {
     setup_logger().unwrap();
 
-    let tracker = Tracker::bind("127.0.0.1:9000").await?;
+    let tracker = UdpTracker::bind("127.0.0.1:2710").await?;
 
     tracker.run().await?;
 
