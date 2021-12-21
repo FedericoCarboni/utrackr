@@ -181,6 +181,9 @@ impl Transaction {
         Ok(())
     }
     async fn connect(&self) -> io::Result<()> {
+        debug_assert!(self.packet_len >= MIN_CONNECT_SIZE);
+        debug_assert!(&self.packet[0..8] == PROTOCOL_ID);
+
         let mut rpkt = [0u8; CONNECT_SIZE];
         // action
         rpkt[0..4].copy_from_slice(ACTION_CONNECT);
@@ -193,8 +196,12 @@ impl Transaction {
         Ok(())
     }
     async fn announce(&self) -> io::Result<()> {
+        debug_assert!(self.packet_len >= MIN_ANNOUNCE_SIZE);
+
         let mut rpkt = [0u8; ANNOUNCE_SIZE];
+        // action
         rpkt[0..4].copy_from_slice(ACTION_ANNOUNCE);
+        // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
         rpkt[8..12].copy_from_slice(&[0u8, 4]);
         rpkt[12..16].copy_from_slice(&[0u8; 4]);
