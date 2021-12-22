@@ -1,6 +1,6 @@
 use std::{
     fmt, io,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -8,12 +8,13 @@ use std::{
 use blake3::Hasher;
 use tokio::net::UdpSocket;
 
+// http://xbtt.sourceforge.net/udp_tracker_protocol.html
 // https://www.bittorrent.org/beps/bep_0015.html
 // https://www.libtorrent.org/udp_tracker_protocol.html
 
 // XBT Tracker uses 2048, opentracker uses 8192, it could be tweaked for
-// performance reasons, but 4096 is a reasonable default value.
-pub const MAX_PACKET_SIZE: usize = 4096;
+// performance reasons
+pub const MAX_PACKET_SIZE: usize = 8192;
 // CONNECT is the smallest packet in the protocol
 pub const MIN_PACKET_SIZE: usize = 16;
 
@@ -21,12 +22,15 @@ pub const MIN_PACKET_SIZE: usize = 16;
 // then they might as well just try to guess the connection_id itself.
 pub const SECRET_SIZE: usize = 8;
 
+const DEFAULT_NUM_WANT: i32 = 64;
+const MAX_NUM_WANT: i32 = 128;
+
 const MIN_CONNECT_SIZE: usize = 16;
 const MIN_ANNOUNCE_SIZE: usize = 98;
 const MIN_SCRAPE_SIZE: usize = 36;
 
 const CONNECT_SIZE: usize = 16;
-const ANNOUNCE_SIZE: usize = 2048;
+const ANNOUNCE_SIZE: usize = 20 + 18 * MAX_NUM_WANT as usize;
 
 const PROTOCOL_ID: &'static [u8] = &0x41727101980i64.to_be_bytes();
 
@@ -197,18 +201,42 @@ impl Transaction {
     }
     async fn announce(&self) -> io::Result<()> {
         debug_assert!(self.packet_len >= MIN_ANNOUNCE_SIZE);
-
+        
+        let info_hash = &self.packet[16..36];
+        let peer_id = &self.packet[36..56];
+        let downloaded = u64::from_be_bytes(self.packet[56..64].try_into().unwrap());
+        let left = u64::from_be_bytes(self.packet[64..72].try_into().unwrap());
+        let uploaded = u64::from_be_bytes(self.packet[72..80].try_into().unwrap());
+        let event = i32::from_be_bytes(self.packet[80..84].try_into().unwrap());
+        // ip_address is ignored
+        // let ip_address = 0;
+        let key = &self.packet[88..92];
+        let mut num_want = i32::from_be_bytes(self.packet[92..96].try_into().unwrap());
+        if num_want < 0 {
+            num_want = DEFAULT_NUM_WANT;
+        } else if num_want > MAX_NUM_WANT {
+            num_want = MAX_NUM_WANT;
+        }
+        let num_want = num_want as usize;
+        let port = u16::from_be_bytes(self.packet[96..98].try_into().unwrap());
+        
         let mut rpkt = [0u8; ANNOUNCE_SIZE];
         // action
         rpkt[0..4].copy_from_slice(ACTION_ANNOUNCE);
         // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
+        // interval
         rpkt[8..12].copy_from_slice(&[0u8, 4]);
+        // 
         rpkt[12..16].copy_from_slice(&[0u8; 4]);
         rpkt[16..20].copy_from_slice(&[0u8; 4]);
+        
+        self.socket.send_to(&rpkt, self.addr).await?;
         Ok(())
     }
     async fn scrape(&self) -> io::Result<()> {
+
+
         Ok(())
     }
 }

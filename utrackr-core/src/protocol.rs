@@ -44,7 +44,7 @@ impl UdpTracker {
                     }
                     let transaction = Transaction::new(
                         Arc::clone(&socket),
-                        self.secret,
+                        self.secret.clone(),
                         packet,
                         packet_len,
                         addr,
