@@ -1,12 +1,14 @@
 use std::{
     fmt, io,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use blake3::Hasher;
 use tokio::net::UdpSocket;
+
+use crate::tracker::{Tracker, Peer};
 
 // http://xbtt.sourceforge.net/udp_tracker_protocol.html
 // https://www.bittorrent.org/beps/bep_0015.html
@@ -45,16 +47,16 @@ const ACTION_ERROR: &'static [u8] = &0x3i32.to_be_bytes();
 ///  - they should expire around every 2 minutes
 /// `connection_id` is the first 8 bytes of the blake3 hash of `secret`,
 /// `time_frame`, `ip` and `port`
-fn make_connection_id(secret: &[u8; 8], time_frame: &[u8], ip: &[u8], port: &[u8]) -> [u8; 8] {
+fn make_connection_id(secret: &[u8; 8], time_frame: &[u8], ip: &[u8], _port: &[u8]) -> [u8; 8] {
     let mut connection_id = [0u8; 8];
     let mut digest = Hasher::new();
     // the connection_id must not be guessable by clients
     digest.update(secret);
     // the connection_id should be invalidated every 2 minutes
     digest.update(time_frame);
-    // the connection_id should change based on ip and port of the client
+    // the connection_id should change based on ip of the client
     digest.update(ip);
-    digest.update(port);
+    // digest.update(port);
     let hash = digest.finalize();
     connection_id.copy_from_slice(&hash.as_bytes()[0..8]);
     connection_id
@@ -74,6 +76,7 @@ fn verify_connection_id(
 pub struct Transaction {
     socket: Arc<UdpSocket>,
     secret: [u8; SECRET_SIZE],
+    tracker: Tracker,
     packet: [u8; MAX_PACKET_SIZE],
     packet_len: usize,
     addr: SocketAddr,
@@ -95,6 +98,7 @@ impl Transaction {
     pub fn new(
         socket: Arc<UdpSocket>,
         secret: [u8; SECRET_SIZE],
+        tracker: Tracker,
         packet: [u8; MAX_PACKET_SIZE],
         packet_len: usize,
         addr: SocketAddr,
@@ -103,6 +107,7 @@ impl Transaction {
         Self {
             socket,
             secret,
+            tracker,
             packet,
             packet_len,
             addr,
@@ -112,7 +117,7 @@ impl Transaction {
                 .as_secs(),
         }
     }
-    pub async fn handle(&self) -> io::Result<()> {
+    pub async fn handle(&mut self) -> io::Result<()> {
         match &self.packet[8..12] {
             ACTION_CONNECT
                 if self.packet_len >= MIN_CONNECT_SIZE && &self.packet[0..8] == PROTOCOL_ID =>
@@ -199,27 +204,35 @@ impl Transaction {
         self.socket.send_to(&rpkt, self.addr).await?;
         Ok(())
     }
-    async fn announce(&self) -> io::Result<()> {
+    async fn announce(&mut self) -> io::Result<()> {
         debug_assert!(self.packet_len >= MIN_ANNOUNCE_SIZE);
-        
+        log::trace!(
+            "{} ANNOUNCE",
+            match self.addr.ip() {
+                IpAddr::V4(_) => "ipv4",
+                IpAddr::V6(_) => "ipv6",
+            }
+        );
+
         let info_hash = &self.packet[16..36];
         let peer_id = &self.packet[36..56];
         let downloaded = u64::from_be_bytes(self.packet[56..64].try_into().unwrap());
         let left = u64::from_be_bytes(self.packet[64..72].try_into().unwrap());
         let uploaded = u64::from_be_bytes(self.packet[72..80].try_into().unwrap());
         let event = i32::from_be_bytes(self.packet[80..84].try_into().unwrap());
-        // ip_address is ignored
-        // let ip_address = 0;
-        let key = &self.packet[88..92];
-        let mut num_want = i32::from_be_bytes(self.packet[92..96].try_into().unwrap());
-        if num_want < 0 {
-            num_want = DEFAULT_NUM_WANT;
+        // the ip_address in the announce packet is currently ignored
+        // let ip_address = self.addr.ip();
+        // let key = &self.packet[88..92];
+        let num_want = i32::from_be_bytes(self.packet[92..96].try_into().unwrap());
+        let num_want = if num_want < 0 {
+            DEFAULT_NUM_WANT
         } else if num_want > MAX_NUM_WANT {
-            num_want = MAX_NUM_WANT;
-        }
-        let num_want = num_want as usize;
+            MAX_NUM_WANT
+        } else {
+            num_want
+        } as usize;
         let port = u16::from_be_bytes(self.packet[96..98].try_into().unwrap());
-        
+
         let mut rpkt = [0u8; ANNOUNCE_SIZE];
         // action
         rpkt[0..4].copy_from_slice(ACTION_ANNOUNCE);
@@ -227,16 +240,39 @@ impl Transaction {
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
         // interval
         rpkt[8..12].copy_from_slice(&[0u8, 4]);
-        // 
+        // leechers
         rpkt[12..16].copy_from_slice(&[0u8; 4]);
+        // seeders
         rpkt[16..20].copy_from_slice(&[0u8; 4]);
-        
+        self.tracker.insert(info_hash, peer_id, Peer {
+            downloaded,
+            uploaded,
+            left,
+            event,
+            addr: SocketAddr::new(self.addr.ip(), port),
+        }).await;
+        self.tracker.select_peers(info_hash, num_want).await?;
+
         self.socket.send_to(&rpkt, self.addr).await?;
         Ok(())
     }
-    async fn scrape(&self) -> io::Result<()> {
+    async fn scrape(&mut self) -> io::Result<()> {
+        let mut rpkt = [0u8; 8 + 12 * MAX_NUM_WANT as usize];
+        rpkt[0..4].copy_from_slice(ACTION_SCRAPE);
+        rpkt[4..8].copy_from_slice(&self.packet[12..16]);
+        let mut offset = 8;
+        let mut i = 16;
+        while i < 16 + 20 * MAX_NUM_WANT as usize {
+            let info_hash = &self.packet[i..i + 20];
+            let (seeders, leechers, completed) = self.tracker.scrape(info_hash).await;
+            rpkt[offset..offset + 4].copy_from_slice(&seeders.to_be_bytes());
+            rpkt[offset + 4..offset + 8].copy_from_slice(&completed.to_be_bytes());
+            rpkt[offset + 8..offset + 12].copy_from_slice(&leechers.to_be_bytes());
+            offset += 12;
+            i += 20;
+        }
 
-
+        self.socket.send_to(&rpkt, self.addr).await?;
         Ok(())
     }
 }

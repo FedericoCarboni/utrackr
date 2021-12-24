@@ -1,59 +1,82 @@
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    io,
+    net::SocketAddr
+};
 
-#[derive(Debug)]
+use bb8_redis::{
+    bb8,
+    redis::{cmd, AsyncCommands},
+    RedisConnectionManager
+};
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Peer {
-    peer_id: [u8; 20],
-    downloaded: u64,
-    uploaded: u64,
-    left: u64,
-    last_seen: Duration,
-    flags: u16,
+    pub downloaded: u64,
+    pub uploaded: u64,
+    pub left: u64,
+    pub event: i32,
+    pub addr: SocketAddr,
 }
 
-#[derive(Debug)]
-pub struct PeerList {
-    seeders: i64,
-    leechers: i64,
-    downloads: i64,
-    peers: Vec<Peer>,
-}
-
+#[derive(Clone)]
 pub struct Tracker {
-    torrents: HashMap<[u8; 20], PeerList>,
+    pool: bb8::Pool<RedisConnectionManager>,
 }
 
 impl Tracker {
-    pub fn contains(&self, info_hash: &[u8]) -> bool {
-        self.torrents.contains_key(info_hash)
+    pub async fn new() -> Self {
+        let manager = RedisConnectionManager::new("redis://localhost").unwrap();
+        let pool = bb8::Pool::builder().build(manager).await.unwrap();
+        Self {
+            pool
+        }
     }
-    pub fn select_peers(&self, info_hash: &[u8], num_want: usize) -> &[Peer] {
-        let peer_list = if let Some(peer_list) = self.torrents.get(info_hash) {
-            peer_list
-        } else {
-            panic!("");
-        };
-        let num_want = if peer_list.peers.len() >= num_want {
-            num_want
-        } else {
-            peer_list.peers.len()
-        };
-        &peer_list.peers[..num_want]
+    pub async fn add_seeder(&mut self, info_hash: &[u8]) {
+        let mut key = [0u8; "utrackr:".len() + 20];
+        key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
+        key["utrackr:".len()..].copy_from_slice(info_hash);
+        let _: i64 = self.pool.get().await.unwrap().hincr(&key, "seeders", 1).await.unwrap();
     }
-    pub fn insert(&mut self, info_hash: &[u8], peer: Peer) {
-        let peer_list = if let Some(peer_list) = self.torrents.get_mut(info_hash) {
-            peer_list
-        } else {
-            let mut owned_info_hash = [0u8; 20];
-            owned_info_hash.copy_from_slice(info_hash);
-            self.torrents.insert(owned_info_hash, PeerList {
-                seeders: 0,
-                leechers: 0,
-                downloads: 0,
-                peers: vec![],
-            });
-            self.torrents.get_mut(info_hash)
-                .expect("failed to add torrent")
-        };
+    pub async fn add_leecher(&mut self, info_hash: &[u8]) {
+        let mut key = [0u8; "utrackr:".len() + 20];
+        key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
+        key["utrackr:".len()..].copy_from_slice(info_hash);
+        let _: i64 = self.pool.get().await.unwrap().hincr(&key, "leechers", 1).await.unwrap();
+    }
+    pub async fn add_downloads(&mut self, info_hash: &[u8]) {
+        let mut key = [0u8; "utrackr:".len() + 20];
+        key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
+        key["utrackr:".len()..].copy_from_slice(info_hash);
+        let _: i64 = self.pool.get().await.unwrap().hincr(&key, "completed", 1).await.unwrap();
+    }
+    pub async fn scrape(&mut self, info_hash: &[u8]) -> (u32, u32, u32) {
+        let mut key = [0u8; "utrackr:".len() + 20];
+        key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
+        key["utrackr:".len()..].copy_from_slice(info_hash);
+        let (seeders, leechers, completed): (Option<u32>, Option<u32>, Option<u32>) = self.pool.get().await.unwrap().hget(&key, &["seeders", "leechers", "completed"]).await.unwrap();
+        (seeders.unwrap_or(0), leechers.unwrap_or(0), completed.unwrap_or(0))
+    }
+    pub async fn insert(&mut self, info_hash: &[u8], peer_id: &[u8], peer: Peer) {
+        let mut key = [0u8; "utrackr:".len() + 20 + ":peers".len()];
+        key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
+        key["utrackr:".len().."utrackr:".len() + 20].copy_from_slice(info_hash);
+        key["utrackr:".len() + 20..].copy_from_slice(b":peers");
+        println!("{:x?}", peer_id);
+        let _: u8 = self.pool.get().await.unwrap().hset(&key as &[u8], &peer_id, bincode::serialize(&peer).unwrap()).await.unwrap();
+    }
+    pub async fn select_peers(&mut self, info_hash: &[u8], num_want: usize) -> io::Result<()> {
+        let mut key = [0u8; "utrackr:".len() + 20 + ":peers".len()];
+        key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
+        key["utrackr:".len().."utrackr:".len() + 20].copy_from_slice(info_hash);
+        key["utrackr:".len() + 20..].copy_from_slice(b":peers");
+        let s: HashMap<Vec<u8>, Vec<u8>> = cmd("HRANDFIELD")
+            .arg(&key as &[u8])
+            .arg(num_want.to_string())
+            .arg("WITHVALUES")
+            .query_async(&mut *self.pool.get().await.unwrap()).await.unwrap();
+        println!("{:x?}", s);
+        Ok(())
     }
 }
