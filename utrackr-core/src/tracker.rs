@@ -6,7 +6,7 @@ use std::{
 
 use bb8_redis::{
     bb8,
-    redis::{cmd, AsyncCommands},
+    redis::{cmd, Value, RedisResult, FromRedisValue, AsyncCommands},
     RedisConnectionManager
 };
 use serde::{Serialize, Deserialize};
@@ -18,6 +18,15 @@ pub struct Peer {
     pub left: u64,
     pub event: i32,
     pub addr: SocketAddr,
+}
+
+impl FromRedisValue for Peer {
+    fn from_redis_value(v: &Value) -> RedisResult<Self> {
+        match v {
+            Value::Data(data) => Ok(bincode::deserialize(data).unwrap()),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -63,20 +72,18 @@ impl Tracker {
         key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
         key["utrackr:".len().."utrackr:".len() + 20].copy_from_slice(info_hash);
         key["utrackr:".len() + 20..].copy_from_slice(b":peers");
-        println!("{:x?}", peer_id);
         let _: u8 = self.pool.get().await.unwrap().hset(&key as &[u8], &peer_id, bincode::serialize(&peer).unwrap()).await.unwrap();
     }
-    pub async fn select_peers(&mut self, info_hash: &[u8], num_want: usize) -> io::Result<()> {
+    pub async fn select_peers(&mut self, info_hash: &[u8], num_want: usize) -> io::Result<HashMap<Vec<u8>, Peer>> {
         let mut key = [0u8; "utrackr:".len() + 20 + ":peers".len()];
         key[.."utrackr:".len()].copy_from_slice(b"utrackr:");
         key["utrackr:".len().."utrackr:".len() + 20].copy_from_slice(info_hash);
         key["utrackr:".len() + 20..].copy_from_slice(b":peers");
-        let s: HashMap<Vec<u8>, Vec<u8>> = cmd("HRANDFIELD")
+        let s: HashMap<Vec<u8>, Peer> = cmd("HRANDFIELD")
             .arg(&key as &[u8])
             .arg(num_want.to_string())
             .arg("WITHVALUES")
             .query_async(&mut *self.pool.get().await.unwrap()).await.unwrap();
-        println!("{:x?}", s);
-        Ok(())
+        Ok(s)
     }
 }
