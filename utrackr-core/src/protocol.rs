@@ -17,11 +17,11 @@ pub struct UdpTracker {
 impl UdpTracker {
     pub async fn bind<T: ToSocketAddrs>(addrs: T) -> io::Result<Self> {
         let mut secret = [0u8; SECRET_SIZE];
-        openssl::rand::rand_bytes(&mut secret)?;
+        // openssl::rand::rand_bytes(&mut secret)?;
         Ok(Self {
             socket: Arc::new(UdpSocket::bind(addrs).await?),
             secret,
-            tracker: Tracker::new().await,
+            tracker: Tracker::new().await.unwrap(),
         })
     }
     pub async fn run(self) -> io::Result<()> {

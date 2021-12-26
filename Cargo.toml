@@ -10,4 +10,3 @@ utrackr-core = { path = "./utrackr-core" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "sync", "macros"] }
 fern = "0.6"
 log = { version = "0.4", features = ["release_max_level_warn"] }
-redis = { version = "0.21.4", features = ["aio", "tokio-comp"] }

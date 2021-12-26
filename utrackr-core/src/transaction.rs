@@ -80,7 +80,7 @@ pub struct Transaction {
     packet: [u8; MAX_PACKET_SIZE],
     packet_len: usize,
     addr: SocketAddr,
-    timestamp: u64,
+    timestamp: std::time::Duration,
 }
 
 impl fmt::Debug for Transaction {
@@ -113,8 +113,7 @@ impl Transaction {
             addr,
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .expect("time went backwards")
-                .as_secs(),
+                .expect("time went backwards"),
         }
     }
     pub async fn handle(&mut self) -> io::Result<()> {
@@ -156,7 +155,7 @@ impl Transaction {
     fn verify_connection_id(&self) -> bool {
         verify_connection_id(
             &self.secret,
-            self.timestamp / 120,
+            self.timestamp.as_secs() / 120,
             &match self.addr.ip() {
                 IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
                 IpAddr::V6(ipv6) => ipv6,
@@ -169,7 +168,7 @@ impl Transaction {
     fn connection_id(&self) -> [u8; 8] {
         make_connection_id(
             &self.secret,
-            &(self.timestamp / 120).to_be_bytes(),
+            &(self.timestamp.as_secs() / 120).to_be_bytes(),
             &match self.addr.ip() {
                 IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
                 IpAddr::V6(ipv6) => ipv6,
@@ -206,7 +205,6 @@ impl Transaction {
     }
     async fn announce(&mut self) -> io::Result<()> {
         debug_assert!(self.packet_len >= MIN_ANNOUNCE_SIZE);
-        let is_ipv6 = self.addr.is_ipv6();
         log::trace!(
             "{} ANNOUNCE",
             match self.addr.ip() {
@@ -215,16 +213,38 @@ impl Transaction {
             }
         );
 
-        let info_hash = &self.packet[16..36];
-        let peer_id = &self.packet[36..56];
-        let downloaded = u64::from_be_bytes(self.packet[56..64].try_into().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
-        let left = u64::from_be_bytes(self.packet[64..72].try_into().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
-        let uploaded = u64::from_be_bytes(self.packet[72..80].try_into().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
-        let event = i32::from_be_bytes(self.packet[80..84].try_into().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
+        let mut info_hash = [0u8; 20];
+        info_hash.copy_from_slice(&self.packet[16..36]);
+        let mut peer_id = [0u8; 20];
+        peer_id.copy_from_slice(&self.packet[36..56]);
+        let downloaded = u64::from_be_bytes(
+            self.packet[56..64]
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
+        let left = u64::from_be_bytes(
+            self.packet[64..72]
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
+        let uploaded = u64::from_be_bytes(
+            self.packet[72..80]
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
+        let event = i32::from_be_bytes(
+            self.packet[80..84]
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
         // the ip_address in the announce packet is currently ignored
         // let ip_address = self.addr.ip();
         // let key = &self.packet[88..92];
-        let num_want = i32::from_be_bytes(self.packet[92..96].try_into().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
+        let num_want = i32::from_be_bytes(
+            self.packet[92..96]
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
         let num_want = if num_want < 0 {
             DEFAULT_NUM_WANT
         } else if num_want > MAX_NUM_WANT {
@@ -232,60 +252,39 @@ impl Transaction {
         } else {
             num_want
         } as usize;
-        let port = u16::from_be_bytes(self.packet[96..98].try_into().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
+        let port = u16::from_be_bytes(
+            self.packet[96..98]
+                .try_into()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+        );
+
+        let peer = Peer {
+            peer_id,
+            info_hash,
+            last_seen: self.timestamp,
+            downloaded,
+            uploaded,
+            left,
+            event,
+            ip: match self.addr.ip() {
+                IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped().octets(),
+                IpAddr::V6(ipv6) => ipv6.octets(),
+            },
+            port,
+            is_ipv4: self.addr.is_ipv4(),
+        };
 
         let mut rpkt = [0u8; ANNOUNCE_SIZE];
         // action
         rpkt[0..4].copy_from_slice(ACTION_ANNOUNCE);
         // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
-        // interval
-        rpkt[8..12].copy_from_slice(&[0u8; 4]);
-        let (seeders, leechers, _) = self.tracker.scrape(info_hash).await;
-        // leechers
-        rpkt[12..16].copy_from_slice(&leechers.to_be_bytes());
-        // seeders
-        rpkt[16..20].copy_from_slice(&seeders.to_be_bytes());
         self.tracker
-            .insert(
-                info_hash,
-                peer_id,
-                Peer {
-                    downloaded,
-                    uploaded,
-                    left,
-                    event,
-                    addr: SocketAddr::new(self.addr.ip(), port),
-                },
-            )
-            .await;
-        let peers = self.tracker.select_peers(info_hash, num_want).await?;
-        let mut offset = 20;
-        for (_, peer) in peers {
-            if is_ipv6 {
-                rpkt[offset..offset + 16].copy_from_slice(&match peer.addr.ip() {
-                    IpAddr::V4(v4) => v4.to_ipv6_mapped(),
-                    IpAddr::V6(v6) => v6,
-                }.octets());
-                rpkt[offset + 16..offset + 18].copy_from_slice(&peer.addr.port().to_be_bytes());
-                offset += 18;
-            } else {
-                rpkt[offset..offset + 4].copy_from_slice(&match peer.addr.ip() {
-                    IpAddr::V4(v4) => v4.octets(),
-                    _ => [0u8; 4],
-                });
-                rpkt[offset + 4..offset + 6].copy_from_slice(&peer.addr.port().to_be_bytes());
-                offset += 6;
-            }
-        }
+            .announce(peer, num_want, &mut rpkt)
+            .await
+            .unwrap();
 
         self.socket.send_to(&rpkt, self.addr).await?;
-        if event == 1 {
-            self.tracker.add_downloads(info_hash).await;
-        }
-        if left == 0 {
-            self.tracker.add_seeder(info_hash).await;
-        }
         Ok(())
     }
     async fn scrape(&mut self) -> io::Result<()> {
@@ -295,7 +294,7 @@ impl Transaction {
         let offset = 8;
         let i = 16;
         let info_hash = &self.packet[i..i + 20];
-        let (seeders, leechers, completed) = self.tracker.scrape(info_hash).await;
+        let (seeders, leechers, completed) = self.tracker.scrape(info_hash.try_into().unwrap()).await.unwrap();
         rpkt[offset..offset + 4].copy_from_slice(&seeders.to_be_bytes());
         rpkt[offset + 4..offset + 8].copy_from_slice(&completed.to_be_bytes());
         rpkt[offset + 8..offset + 12].copy_from_slice(&leechers.to_be_bytes());
