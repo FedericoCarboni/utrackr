@@ -7,6 +7,11 @@ edition = "2021"
 
 [dependencies]
 utrackr-core = { path = "./utrackr-core" }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "sync", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 fern = "0.6"
-log = { version = "0.4", features = ["release_max_level_warn"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

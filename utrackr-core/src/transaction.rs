@@ -16,13 +16,13 @@ use crate::tracker::{Peer, Tracker};
 
 // XBT Tracker uses 2048, opentracker uses 8192, it could be tweaked for
 // performance reasons
-pub const MAX_PACKET_SIZE: usize = 8192;
+pub(crate) const MAX_PACKET_SIZE: usize = 8192;
 // CONNECT is the smallest packet in the protocol
-pub const MIN_PACKET_SIZE: usize = 16;
+pub(crate) const MIN_PACKET_SIZE: usize = 16;
 
 // This is used to prevent UDP spoofing, if anyone has to guess 8 random bytes
 // then they might as well just try to guess the connection_id itself.
-pub const SECRET_SIZE: usize = 8;
+pub(crate) const SECRET_SIZE: usize = 8;
 
 const DEFAULT_NUM_WANT: i32 = 64;
 const MAX_NUM_WANT: i32 = 128;
@@ -33,13 +33,24 @@ const MIN_SCRAPE_SIZE: usize = 36;
 
 const CONNECT_SIZE: usize = 16;
 const ANNOUNCE_SIZE: usize = 20 + 18 * MAX_NUM_WANT as usize;
+const SCRAPE_SIZE: usize = 8 + 12 * MAX_NUM_WANT as usize;
 
-const PROTOCOL_ID: &'static [u8] = &0x41727101980i64.to_be_bytes();
+const PROTOCOL_ID: [u8; 8] = 0x41727101980i64.to_be_bytes();
 
-const ACTION_CONNECT: &'static [u8] = &0x0i32.to_be_bytes();
-const ACTION_ANNOUNCE: &'static [u8] = &0x1i32.to_be_bytes();
-const ACTION_SCRAPE: &'static [u8] = &0x2i32.to_be_bytes();
-const ACTION_ERROR: &'static [u8] = &0x3i32.to_be_bytes();
+const ACTION_CONNECT: [u8; 4] = 0x0i32.to_be_bytes();
+const ACTION_ANNOUNCE: [u8; 4] = 0x1i32.to_be_bytes();
+const ACTION_SCRAPE: [u8; 4] = 0x2i32.to_be_bytes();
+// const ACTION_ERROR: [u8; 4] = 0x3i32.to_be_bytes();
+
+macro_rules! array_from_slice {
+    ($slice:expr, $start:expr => $end:expr) => {{
+        let mut r = [0u8; $end - $start];
+        for i in 0..$end - $start {
+            r[i] = $slice[$start..][i];
+        }
+        r
+    }};
+}
 
 /// The UDP tracker protocol specification recommends that connection ids have
 /// two features:
@@ -73,7 +84,7 @@ fn verify_connection_id(
         || connection_id == make_connection_id(secret, &(time_frame - 1).to_be_bytes(), ip, port)
 }
 
-pub struct Transaction {
+pub(crate) struct Transaction {
     socket: Arc<UdpSocket>,
     secret: [u8; SECRET_SIZE],
     tracker: Tracker,
@@ -95,7 +106,7 @@ impl fmt::Debug for Transaction {
 }
 
 impl Transaction {
-    pub fn new(
+    pub(crate) fn new(
         socket: Arc<UdpSocket>,
         secret: [u8; SECRET_SIZE],
         tracker: Tracker,
@@ -116,39 +127,33 @@ impl Transaction {
                 .expect("time went backwards"),
         }
     }
-    pub async fn handle(&mut self) -> io::Result<()> {
-        match &self.packet[8..12] {
-            ACTION_CONNECT
-                if self.packet_len >= MIN_CONNECT_SIZE && &self.packet[0..8] == PROTOCOL_ID =>
-            {
+    pub(crate) async fn handle(&mut self) -> io::Result<()> {
+        if self.packet[8..12] == ACTION_CONNECT {
+            if self.packet_len >= MIN_CONNECT_SIZE && &self.packet[0..8] == PROTOCOL_ID {
                 // CONNECT packet
                 log::debug!("CONNECT request from {}", self.addr);
                 self.connect().await?;
             }
-            ACTION_ANNOUNCE if self.packet_len >= MIN_ANNOUNCE_SIZE => {
-                if !self.verify_connection_id() {
-                    return self.access_denied().await;
-                }
-                // ANNOUNCE packet
+        } else if self.packet[8..12] == ACTION_ANNOUNCE {
+            if self.packet_len >= MIN_ANNOUNCE_SIZE {
                 log::debug!("ANNOUNCE request from {}", self.addr);
+                if !self.verify_connection_id() {
+                    log::debug!("ANNOUNCE request from {}, invalid connection_id", self.addr);
+                    return self.error(b"Invalid connection id").await;
+                }
                 self.announce().await?;
             }
-            ACTION_SCRAPE if self.packet_len >= MIN_SCRAPE_SIZE => {
-                if !self.verify_connection_id() {
-                    return self.access_denied().await;
-                }
-                // SCRAPE packet
+        } else if self.packet[8..12] == ACTION_SCRAPE {
+            if self.packet_len >= MIN_SCRAPE_SIZE {
                 log::debug!("SCRAPE request from {}", self.addr);
+                if !self.verify_connection_id() {
+                    log::debug!("SCRAPE request from {}, invalid connection_id", self.addr);
+                    return self.error(b"Invalid connection id").await;
+                }
                 self.scrape().await?;
             }
-            _ => {
-                // invalid or unknown packet
-                log::trace!(
-                    "unknown packet ({} bytes) from {}",
-                    self.packet_len,
-                    self.addr
-                );
-            }
+        } else {
+            log::trace!("unknown packet ({} bytes)", self.packet_len);
         }
         Ok(())
     }
@@ -177,86 +182,67 @@ impl Transaction {
             &self.addr.port().to_be_bytes(),
         )
     }
-    async fn access_denied(&self) -> io::Result<()> {
-        log::info!("access denied for {}", self.addr);
+    async fn error(&self, message: &[u8]) -> io::Result<()> {
+        debug_assert!(message.len() <= 55, "error message too long");
 
-        let mut rpkt = [0u8; 22];
-        rpkt[0..4].copy_from_slice(ACTION_ERROR);
+        let mut rpkt = [0u8; 64];
+        // action ERROR
+        rpkt[3] = 0x03;
+        // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
-        rpkt[8..22].copy_from_slice(b"access denied\0");
+        // C0-terminated human readable error message
+        rpkt[8..8 + message.len()].copy_from_slice(message);
 
-        self.socket.send_to(&rpkt, self.addr).await?;
+        if let Err(error) = self.socket.send_to(&rpkt, self.addr).await {
+            log::error!("failed to send CONNECT response: {}", error);
+        }
         Ok(())
     }
     async fn connect(&self) -> io::Result<()> {
         debug_assert!(self.packet_len >= MIN_CONNECT_SIZE);
         debug_assert!(&self.packet[0..8] == PROTOCOL_ID);
 
+        // action CONNECT is all 0
         let mut rpkt = [0u8; CONNECT_SIZE];
-        // action
-        rpkt[0..4].copy_from_slice(ACTION_CONNECT);
         // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
         // connection_id
         rpkt[8..16].copy_from_slice(&self.connection_id());
 
-        self.socket.send_to(&rpkt, self.addr).await?;
+        if let Err(error) = self.socket.send_to(&rpkt, self.addr).await {
+            log::error!("failed to send CONNECT response: {}", error);
+        }
         Ok(())
     }
     async fn announce(&mut self) -> io::Result<()> {
         debug_assert!(self.packet_len >= MIN_ANNOUNCE_SIZE);
+
         log::trace!(
-            "{} ANNOUNCE",
+            "announcing in {} mode",
             match self.addr.ip() {
                 IpAddr::V4(_) => "ipv4",
                 IpAddr::V6(_) => "ipv6",
             }
         );
 
-        let mut info_hash = [0u8; 20];
-        info_hash.copy_from_slice(&self.packet[16..36]);
-        let mut peer_id = [0u8; 20];
-        peer_id.copy_from_slice(&self.packet[36..56]);
-        let downloaded = u64::from_be_bytes(
-            self.packet[56..64]
-                .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        );
-        let left = u64::from_be_bytes(
-            self.packet[64..72]
-                .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        );
-        let uploaded = u64::from_be_bytes(
-            self.packet[72..80]
-                .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        );
-        let event = i32::from_be_bytes(
-            self.packet[80..84]
-                .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        );
+        let info_hash = array_from_slice!(self.packet, 16 => 36);
+        let peer_id = array_from_slice!(self.packet, 36 => 56);
+        let downloaded = u64::from_be_bytes(array_from_slice!(self.packet, 56 => 64));
+        let left = u64::from_be_bytes(array_from_slice!(self.packet, 64 => 72));
+        let uploaded = u64::from_be_bytes(array_from_slice!(self.packet, 72 => 80));
+        let event = i32::from_be_bytes(array_from_slice!(self.packet, 80 => 84));
         // the ip_address in the announce packet is currently ignored
-        // let ip_address = self.addr.ip();
+        // let ip_address = &self.packet[84..88];
         // let key = &self.packet[88..92];
-        let num_want = i32::from_be_bytes(
-            self.packet[92..96]
-                .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        );
+        let num_want = i32::from_be_bytes(array_from_slice!(self.packet, 92 => 96));
         let num_want = if num_want < 0 {
             DEFAULT_NUM_WANT
         } else if num_want > MAX_NUM_WANT {
             MAX_NUM_WANT
         } else {
             num_want
-        } as usize;
-        let port = u16::from_be_bytes(
-            self.packet[96..98]
-                .try_into()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        );
+        };
+        let port = u16::from_be_bytes(array_from_slice!(self.packet, 96 => 98));
 
         let peer = Peer {
             peer_id,
@@ -275,30 +261,42 @@ impl Transaction {
         };
 
         let mut rpkt = [0u8; ANNOUNCE_SIZE];
-        // action
-        rpkt[0..4].copy_from_slice(ACTION_ANNOUNCE);
+        // action ANNOUNCE
+        rpkt[3] = 0x01;
         // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
-        self.tracker
-            .announce(peer, num_want, &mut rpkt)
-            .await
-            .unwrap();
+        self.tracker.announce(&peer, num_want, &mut rpkt).await.unwrap();
 
-        self.socket.send_to(&rpkt, self.addr).await?;
+        if let Err(error) = self.socket.send_to(&rpkt, self.addr).await {
+            log::error!("failed to send ANNOUNCE response: {}", error);
+        }
+
+        self.tracker.add_torrent_or_peer(peer).await;
+        dbg!(&self.tracker.torrents.read().await);
+        dbg!(&self.tracker.peers_.read().await);
+
         Ok(())
     }
     async fn scrape(&mut self) -> io::Result<()> {
-        let mut rpkt = [0u8; 8 + 12 * MAX_NUM_WANT as usize];
-        rpkt[0..4].copy_from_slice(ACTION_SCRAPE);
+        let mut rpkt = [0u8; SCRAPE_SIZE];
+        // action SCRAPE
+        rpkt[3] = 0x02;
+        // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
         let offset = 8;
         let i = 16;
         let info_hash = &self.packet[i..i + 20];
-        let (seeders, leechers, completed) = self.tracker.scrape(info_hash.try_into().unwrap()).await.unwrap();
+        let (seeders, leechers, completed) = self
+            .tracker
+            .scrape(info_hash.try_into().unwrap())
+            .await
+            .unwrap();
         rpkt[offset..offset + 4].copy_from_slice(&seeders.to_be_bytes());
         rpkt[offset + 4..offset + 8].copy_from_slice(&completed.to_be_bytes());
         rpkt[offset + 8..offset + 12].copy_from_slice(&leechers.to_be_bytes());
-        self.socket.send_to(&rpkt, self.addr).await?;
+        if let Err(error) = self.socket.send_to(&rpkt, self.addr).await {
+            log::error!("failed to send SCRAPE response: {}", error);
+        }
         Ok(())
     }
 }

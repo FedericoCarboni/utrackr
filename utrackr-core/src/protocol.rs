@@ -1,13 +1,12 @@
-use std::{io, sync::Arc, time::Duration};
+use std::{io, sync::Arc};
 
-use tokio::{
-    net::{ToSocketAddrs, UdpSocket},
-    time,
-};
+use tokio::net::{ToSocketAddrs, UdpSocket};
+use rand::random;
 
-use crate::transaction::{Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE, SECRET_SIZE};
 use crate::tracker::Tracker;
+use crate::transaction::{Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE, SECRET_SIZE};
 
+#[derive(Debug)]
 pub struct UdpTracker {
     socket: Arc<UdpSocket>,
     secret: [u8; SECRET_SIZE],
@@ -16,7 +15,7 @@ pub struct UdpTracker {
 
 impl UdpTracker {
     pub async fn bind<T: ToSocketAddrs>(addrs: T) -> io::Result<Self> {
-        let mut secret = [0u8; SECRET_SIZE];
+        let secret: [u8; SECRET_SIZE] = random();
         // openssl::rand::rand_bytes(&mut secret)?;
         Ok(Self {
             socket: Arc::new(UdpSocket::bind(addrs).await?),
@@ -25,22 +24,20 @@ impl UdpTracker {
         })
     }
     pub async fn run(self) -> io::Result<()> {
-        log::info!("running");
         loop {
             let mut packet = [0u8; MAX_PACKET_SIZE];
             match self.socket.recv_from(&mut packet).await {
-                Ok((mut packet_len, addr)) => {
+                Ok((packet_len, addr)) => {
                     // ill-sized packets are ignored
                     if packet_len < MIN_PACKET_SIZE {
                         continue;
                     }
                     if packet_len > MAX_PACKET_SIZE {
                         log::trace!(
-                            "packet too big: received packet of length {}, it has been truncated to {}",
+                            "packet too big: received packet of length {}, ignored",
                             packet_len,
-                            MAX_PACKET_SIZE
                         );
-                        packet_len = MAX_PACKET_SIZE;
+                        continue;
                     } else {
                         log::trace!("received packet of length {}", packet_len);
                     }
@@ -55,14 +52,12 @@ impl UdpTracker {
                     // handle the request concurrently
                     tokio::spawn(async move {
                         if let Err(err) = transaction.handle().await {
-                            log::error!("unexpected error {}", err);
+                            log::error!("transaction handler failed: {}", err);
                         }
                     });
                 }
                 Err(err) => {
                     log::error!("unexpected io error while reading udp socket {}", err);
-                    log::info!("waiting 60 seconds before retrying");
-                    time::sleep(Duration::from_secs(60)).await;
                 }
             }
         }

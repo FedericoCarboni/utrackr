@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["rt", "time", "net", "macros"] }
-blake3 = "1.2.0"
-log = { version = "0.4", features = ["release_max_level_warn"] }
+tokio = { version = "1", features = ["rt", "net", "macros"] }
+blake3 = "1.2"
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
-mongodb = "2.1.0"
+mongodb = "2.1"
 futures = "0.3"
+rand = { version = "0.8", features = ["alloc"] }
