@@ -1,7 +1,10 @@
 use std::{io, sync::Arc};
 
-use tokio::net::{ToSocketAddrs, UdpSocket};
 use rand::random;
+use tokio::{
+    net::{ToSocketAddrs, UdpSocket},
+    sync::RwLock,
+};
 
 use crate::tracker::Tracker;
 use crate::transaction::{Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE, SECRET_SIZE};
@@ -10,17 +13,16 @@ use crate::transaction::{Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE, SECRET_S
 pub struct UdpTracker {
     socket: Arc<UdpSocket>,
     secret: [u8; SECRET_SIZE],
-    tracker: Tracker,
+    tracker: Arc<RwLock<Tracker>>,
 }
 
 impl UdpTracker {
     pub async fn bind<T: ToSocketAddrs>(addrs: T) -> io::Result<Self> {
         let secret: [u8; SECRET_SIZE] = random();
-        // openssl::rand::rand_bytes(&mut secret)?;
         Ok(Self {
             socket: Arc::new(UdpSocket::bind(addrs).await?),
             secret,
-            tracker: Tracker::new().await.unwrap(),
+            tracker: Arc::new(RwLock::new(Tracker::new())),
         })
     }
     pub async fn run(self) -> io::Result<()> {

@@ -19,7 +19,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger().unwrap();
 
-    let tracker = UdpTracker::bind("127.0.0.1:2710").await?;
+    let tracker = UdpTracker::bind("0.0.0.0:6270").await?;
 
     tracker.run().await?;
 

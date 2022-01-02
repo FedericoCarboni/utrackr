@@ -6,7 +6,7 @@ use std::{
 };
 
 use blake3::Hasher;
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::RwLock};
 
 use crate::tracker::{Peer, Tracker};
 
@@ -24,8 +24,8 @@ pub(crate) const MIN_PACKET_SIZE: usize = 16;
 // then they might as well just try to guess the connection_id itself.
 pub(crate) const SECRET_SIZE: usize = 8;
 
-const DEFAULT_NUM_WANT: i32 = 64;
-const MAX_NUM_WANT: i32 = 128;
+const DEFAULT_NUM_WANT: usize = 64;
+pub(crate) const MAX_NUM_WANT: usize = 128;
 
 const MIN_CONNECT_SIZE: usize = 16;
 const MIN_ANNOUNCE_SIZE: usize = 98;
@@ -44,8 +44,11 @@ const ACTION_SCRAPE: [u8; 4] = 0x2i32.to_be_bytes();
 
 macro_rules! array_from_slice {
     ($slice:expr, $start:expr => $end:expr) => {{
-        let mut r = [0u8; $end - $start];
-        for i in 0..$end - $start {
+        array_from_slice!($slice, $end - $start, $start => $end)
+    }};
+    ($slice:expr, $size:expr, $start:expr => $end:expr) => {{
+        let mut r = [0u8; $size];
+        for i in 0..$size {
             r[i] = $slice[$start..][i];
         }
         r
@@ -87,7 +90,7 @@ fn verify_connection_id(
 pub(crate) struct Transaction {
     socket: Arc<UdpSocket>,
     secret: [u8; SECRET_SIZE],
-    tracker: Tracker,
+    tracker: Arc<RwLock<Tracker>>,
     packet: [u8; MAX_PACKET_SIZE],
     packet_len: usize,
     addr: SocketAddr,
@@ -109,7 +112,7 @@ impl Transaction {
     pub(crate) fn new(
         socket: Arc<UdpSocket>,
         secret: [u8; SECRET_SIZE],
-        tracker: Tracker,
+        tracker: Arc<RwLock<Tracker>>,
         packet: [u8; MAX_PACKET_SIZE],
         packet_len: usize,
         addr: SocketAddr,
@@ -131,23 +134,23 @@ impl Transaction {
         if self.packet[8..12] == ACTION_CONNECT {
             if self.packet_len >= MIN_CONNECT_SIZE && &self.packet[0..8] == PROTOCOL_ID {
                 // CONNECT packet
-                log::debug!("CONNECT request from {}", self.addr);
+                log::trace!("CONNECT request from {}", self.addr);
                 self.connect().await?;
             }
         } else if self.packet[8..12] == ACTION_ANNOUNCE {
             if self.packet_len >= MIN_ANNOUNCE_SIZE {
-                log::debug!("ANNOUNCE request from {}", self.addr);
+                log::trace!("ANNOUNCE request from {}", self.addr);
                 if !self.verify_connection_id() {
-                    log::debug!("ANNOUNCE request from {}, invalid connection_id", self.addr);
+                    log::trace!("ANNOUNCE request from {}, invalid connection_id", self.addr);
                     return self.error(b"Invalid connection id").await;
                 }
                 self.announce().await?;
             }
         } else if self.packet[8..12] == ACTION_SCRAPE {
             if self.packet_len >= MIN_SCRAPE_SIZE {
-                log::debug!("SCRAPE request from {}", self.addr);
+                log::trace!("SCRAPE request from {}", self.addr);
                 if !self.verify_connection_id() {
-                    log::debug!("SCRAPE request from {}, invalid connection_id", self.addr);
+                    log::trace!("SCRAPE request from {}, invalid connection_id", self.addr);
                     return self.error(b"Invalid connection id").await;
                 }
                 self.scrape().await?;
@@ -183,6 +186,7 @@ impl Transaction {
         )
     }
     async fn error(&self, message: &[u8]) -> io::Result<()> {
+        // make sure that we have a terminating 0 byte
         debug_assert!(message.len() <= 55, "error message too long");
 
         let mut rpkt = [0u8; 64];
@@ -233,48 +237,75 @@ impl Transaction {
         let event = i32::from_be_bytes(array_from_slice!(self.packet, 80 => 84));
         // the ip_address in the announce packet is currently ignored
         // let ip_address = &self.packet[84..88];
-        // let key = &self.packet[88..92];
+        let key = array_from_slice!(self.packet, 88 => 92);
         let num_want = i32::from_be_bytes(array_from_slice!(self.packet, 92 => 96));
-        let num_want = if num_want < 0 {
+        let amount = if num_want < 0 {
             DEFAULT_NUM_WANT
-        } else if num_want > MAX_NUM_WANT {
+        } else if num_want > MAX_NUM_WANT as i32 {
             MAX_NUM_WANT
         } else {
-            num_want
+            num_want as usize
         };
         let port = u16::from_be_bytes(array_from_slice!(self.packet, 96 => 98));
 
         let peer = Peer {
-            peer_id,
-            info_hash,
-            last_seen: self.timestamp,
+            id: peer_id,
             downloaded,
-            uploaded,
             left,
+            uploaded,
             event,
-            ip: match self.addr.ip() {
-                IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped().octets(),
-                IpAddr::V6(ipv6) => ipv6.octets(),
-            },
-            port,
-            is_ipv4: self.addr.is_ipv4(),
+            key,
+            addr: SocketAddr::new(self.addr.ip(), port),
+            announced: self.timestamp,
         };
+
+        let (leechers, seeders, addrs) = self
+            .tracker
+            .read()
+            .await
+            .read_announce(&peer, info_hash, amount);
 
         let mut rpkt = [0u8; ANNOUNCE_SIZE];
         // action ANNOUNCE
         rpkt[3] = 0x01;
         // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
-        self.tracker.announce(&peer, num_want, &mut rpkt).await.unwrap();
+        // interval
+        rpkt[8..12].copy_from_slice(&1800i32.to_be_bytes());
+        rpkt[12..16].copy_from_slice(&leechers.to_be_bytes());
+        rpkt[16..20].copy_from_slice(&seeders.to_be_bytes());
+
+        let mut offset = 20;
+
+        for addr in addrs {
+            if self.addr.is_ipv6() {
+                rpkt[offset..offset + 16].copy_from_slice(
+                    &match addr.ip() {
+                        IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
+                        IpAddr::V6(ipv6) => ipv6,
+                    }
+                    .octets(),
+                );
+                rpkt[offset + 16..offset + 18].copy_from_slice(&addr.port().to_be_bytes());
+                offset += 18;
+            } else {
+                rpkt[offset..offset + 4].copy_from_slice(
+                    &match addr.ip() {
+                        IpAddr::V4(ipv4) => ipv4,
+                        IpAddr::V6(ipv6) => ipv6.to_ipv4().unwrap(),
+                    }
+                    .octets(),
+                );
+                rpkt[offset + 4..offset + 6].copy_from_slice(&addr.port().to_be_bytes());
+                offset += 6;
+            }
+        }
 
         if let Err(error) = self.socket.send_to(&rpkt, self.addr).await {
             log::error!("failed to send ANNOUNCE response: {}", error);
         }
 
-        self.tracker.add_torrent_or_peer(peer).await;
-        dbg!(&self.tracker.torrents.read().await);
-        dbg!(&self.tracker.peers_.read().await);
-
+        self.tracker.write().await.write_announce(peer, info_hash);
         Ok(())
     }
     async fn scrape(&mut self) -> io::Result<()> {
@@ -283,17 +314,20 @@ impl Transaction {
         rpkt[3] = 0x02;
         // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
-        let offset = 8;
-        let i = 16;
-        let info_hash = &self.packet[i..i + 20];
-        let (seeders, leechers, completed) = self
-            .tracker
-            .scrape(info_hash.try_into().unwrap())
-            .await
-            .unwrap();
-        rpkt[offset..offset + 4].copy_from_slice(&seeders.to_be_bytes());
-        rpkt[offset + 4..offset + 8].copy_from_slice(&completed.to_be_bytes());
-        rpkt[offset + 8..offset + 12].copy_from_slice(&leechers.to_be_bytes());
+        let mut offset = 8;
+        let mut i = 16;
+        while i < self.packet_len {
+            let info_hash = array_from_slice!(self.packet, 20, i => i + 20);
+            if info_hash == [0u8; 20] {
+                break;
+            }
+            let (seeders, leechers, completed) = self.tracker.read().await.scrape(info_hash);
+            rpkt[offset..offset + 4].copy_from_slice(&seeders.to_be_bytes());
+            rpkt[offset + 4..offset + 8].copy_from_slice(&completed.to_be_bytes());
+            rpkt[offset + 8..offset + 12].copy_from_slice(&leechers.to_be_bytes());
+            offset += 12;
+            i += 20;
+        }
         if let Err(error) = self.socket.send_to(&rpkt, self.addr).await {
             log::error!("failed to send SCRAPE response: {}", error);
         }
