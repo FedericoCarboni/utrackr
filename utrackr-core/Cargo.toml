@@ -6,8 +6,10 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 blake3 = "1.2"
+flate2 = "1.0"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 # mongodb = "2.1"
 # futures = "0.3"
 rand = { version = "0.8", features = ["alloc"] }
+hyper = "0.14"

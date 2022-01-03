@@ -1,27 +1,46 @@
-use utrackr_core::UdpTracker;
+use std::{convert::Infallible, net::SocketAddr};
 
-fn setup_logger() -> Result<(), fern::InitError> {
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{}][{}] {}",
-                record.target(),
-                record.level(),
-                message
-            ))
-        })
-        .chain(std::io::stdout())
-        .apply()?;
-    Ok(())
+use hyper::{
+    service::{make_service_fn, service_fn},
+    server::conn::AddrStream,
+    Body, Request, Response, Server,
+};
+
+async fn announce(addr: SocketAddr, req: Request<Body>) -> Result<Response<Body>, Infallible>  {
+    let query = form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes());
+    let info_hash = 0u32;
+    for (key, value) in query {
+        match &*key {
+            "info_hash" => {
+
+            },
+            _ => {}
+        }
+    }
+    Ok(Response::new((addr.to_string() + req.uri().path()).into()))
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    setup_logger().unwrap();
+async fn main() {
+    // A `Service` is needed for every connection, so this
+    // creates one from our `hello_world` function.
+    let make_service = make_service_fn(|conn: &AddrStream| {
+        let addr = conn.remote_addr();
+        // service_fn converts our function into a `Service`
+        let service = service_fn(move |req| {
+            announce(addr, req)
+        });
 
-    let tracker = UdpTracker::bind("0.0.0.0:6270").await?;
+        // Return the service to hyper.
+        async move { Ok::<_, Infallible>(service) }
+    });
 
-    tracker.run().await?;
+    // We'll bind to 127.0.0.1:3000
+    let addr = SocketAddr::from(([0, 0, 0, 0], 9720));
+    let server = Server::bind(&addr).serve::<_, Body>(make_service);
 
-    Ok(())
+    // Run this server for... forever!
+    if let Err(e) = server.await {
+        eprintln!("server error: {}", e);
+    }
 }
