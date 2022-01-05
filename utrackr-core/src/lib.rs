@@ -1,12 +1,6 @@
-#![warn(
-    missing_debug_implementations,
-    rust_2018_idioms,
-    unreachable_pub
-)]
-
-mod protocol;
-mod transaction;
+mod config;
+pub use config::TrackerConfig;
 mod tracker;
-pub use protocol::UdpTracker;
-pub use tracker::Tracker;
-mod http;
+pub use tracker::{Tracker, AnnounceError, AnnounceRequest};
+mod swarm;
+pub use swarm::{Event, Peer, Swarm};

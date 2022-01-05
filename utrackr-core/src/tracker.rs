@@ -1,90 +1,209 @@
-use std::{collections::HashMap, net::SocketAddr, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, time::Instant};
 
 use rand::seq::IteratorRandom;
 
-#[derive(Debug)]
-pub struct Peer {
-    pub(crate) id: [u8; 20],
-    pub(crate) key: [u8; 4],
-    pub(crate) addr: SocketAddr,
-    pub(crate) downloaded: u64,
-    pub(crate) left: u64,
-    pub(crate) uploaded: u64,
-    pub(crate) event: i32, // 0: none; 1: completed; 2: started; 3: stopped
-    pub(crate) announced: Duration,
+use crate::config::TrackerConfig;
+use crate::swarm::{Event, Peer, Swarm};
+
+pub enum AnnounceError {
+    UnknownTorrent,
+    InvalidPort,
+    InvalidKey,
+    InvalidNumWant,
 }
 
 #[derive(Debug)]
-pub(crate) struct Torrent {
-    pub(crate) leechers: i32,
-    pub(crate) seeders: i32,
-    pub(crate) downloads: i32,
-    pub(crate) peers: Vec<Peer>,
-}
-
-impl Default for Torrent {
-    fn default() -> Self {
-        Self {
-            leechers: 0,
-            seeders: 0,
-            downloads: 0,
-            peers: Vec::with_capacity(128),
-        }
-    }
+pub struct AnnounceRequest {
+    pub info_hash: [u8; 20],
+    pub peer_id: [u8; 20],
+    pub key: Option<u32>,
+    pub addr: SocketAddr,
+    pub event: Event,
+    pub downloaded: u64,
+    pub uploaded: u64,
+    pub left: u64,
+    pub num_want: i32,
+    pub timestamp: Instant,
 }
 
 #[derive(Debug)]
 pub struct Tracker {
-    torrents: HashMap<[u8; 20], Torrent>,
+    swarms: HashMap<[u8; 20], Swarm>,
+    config: TrackerConfig,
+}
+
+impl Default for Tracker {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
 }
 
 impl Tracker {
-    pub fn new() -> Self {
+    pub fn new(config: TrackerConfig) -> Self {
         Self {
-            torrents: Default::default(),
+            swarms: HashMap::new(),
+            config,
         }
     }
-    pub fn read_announce(
+    fn validate_announce(
         &self,
-        peer: &Peer,
-        info_hash: [u8; 20],
-        amount: usize,
-    ) -> (i32, i32, Vec<SocketAddr>) {
-        let torrents = &self.torrents;
-        if let Some(torrent) = torrents.get(&info_hash) {
-            let addrs = torrent
-                .peers
-                .iter()
-                .filter(|p| p.id != peer.id && p.key != peer.key && (peer.addr.is_ipv6() || p.addr.is_ipv4()))
-                .map(|p| p.addr)
-                .choose_multiple(&mut rand::thread_rng(), amount);
-            (torrent.leechers, torrent.seeders, addrs)
+        req: &AnnounceRequest,
+        swarm: Option<&Swarm>,
+    ) -> Result<(), AnnounceError> {
+        // Ports 1-1023 are system ports, no reasonable BitTorrent client should
+        // ever listen for peer connections on those ports, so we refuse the
+        // ANNOUNCE request to avoid being exploited for a DDOS attack.
+        if req.addr.port() < 1024 {
+            return Err(AnnounceError::InvalidPort);
+        }
+        // Prevent clients from requesting too many peers
+        if req.num_want > self.config.max_numwant {
+            return Err(AnnounceError::InvalidNumWant);
+        }
+        swarm
+            .and_then(|swarm| swarm.peers().get(&req.peer_id))
+            .map(|peer| {
+                if peer.key == req.key {
+                    Ok(())
+                } else {
+                    Err(AnnounceError::InvalidKey)
+                }
+            })
+            .unwrap_or(Ok(()))?;
+        Ok(())
+    }
+    pub fn start_announce(
+        &self,
+        req: &AnnounceRequest,
+    ) -> Result<Option<Vec<(&[u8; 20], &Peer)>>, AnnounceError> {
+        let swarm = self.swarms.get(&req.info_hash);
+        self.validate_announce(req, swarm)?;
+        let num_want = if req.num_want < 0 {
+            self.config.default_numwant
+        } else if req.num_want > self.config.max_numwant {
+            self.config.max_numwant
         } else {
-            (0, 0, Vec::new())
-        }
+            req.num_want
+        } as usize;
+        swarm
+            .map(|swarm| {
+                Ok(Some(
+                    swarm
+                        .peers()
+                        .iter()
+                        .filter(|(&id, peer)| {
+                            id != req.peer_id
+                                && peer.key != req.key
+                                && (req.addr.is_ipv6() || peer.addr.is_ipv4())
+                                && (req.left != 0 || peer.left > 0)
+                        })
+                        .choose_multiple(&mut rand::thread_rng(), num_want),
+                ))
+            })
+            .unwrap_or_else(|| {
+                if self.config.enable_unknown_torrents {
+                    Ok(None)
+                } else {
+                    Err(AnnounceError::UnknownTorrent)
+                }
+            })
     }
-    pub fn write_announce(&mut self, peer: Peer, info_hash: [u8; 20]) {
-        let torrent = self.torrents.entry(info_hash).or_default();
-        torrent.peers.retain(|p| {
-            p.announced - peer.announced < Duration::from_secs(1800)
-        });
-        let removed = torrent
-            .peers
+    pub fn announce(&mut self, req: &AnnounceRequest) -> Result<(), AnnounceError> {
+        debug_assert!(self.validate_announce(req, self.swarms.get(&req.info_hash)).is_ok());
+        if !self.config.enable_unknown_torrents {
+            if let Some(swarm) = self.swarms.get_mut(&req.info_hash) {
+                swarm.announce(req)?;
+                return Ok(());
+            } else {
+                return Err(AnnounceError::UnknownTorrent);
+            }
+        }
+        self.swarms
+            .entry(req.info_hash)
+            .or_default()
+            .announce(req)?;
+        Ok(())
+    }
+    pub fn scrape<'a>(
+        &'a self,
+        info_hashes: &'a [[u8; 20]],
+    ) -> impl Iterator<Item = Option<&'a Swarm>> {
+        info_hashes
             .iter()
-            .position(|p| p.id == peer.id && p.addr == peer.addr)
-            .map(|i| torrent.peers.remove(i))
-            .is_some();
-        if peer.left == 0 && (peer.event == 1 || !removed) {
-            torrent.seeders += 1;
-        } else if !removed {
-            torrent.leechers += 1;
-        }
-        torrent.peers.push(peer);
+            .map(|info_hash| self.swarms.get(info_hash))
     }
-    pub fn scrape(&self, info_hash: [u8; 20]) -> (i32, i32, i32) {
-        self.torrents
-            .get(&info_hash)
-            .map(|torrent| (torrent.leechers, torrent.seeders, torrent.downloads))
-            .unwrap_or((0, 0, 0))
+    pub fn evict(&mut self) {
+        for (_, swarm) in self.swarms.iter_mut() {
+            let mut complete = 0;
+            let mut incomplete = 0;
+            swarm.peers_mut().retain(|_, peer| {
+                let is_valid = peer.announce.elapsed().as_secs() <= self.config.max_interval;
+                if !is_valid {
+                    if peer.left == 0 {
+                        complete += 1;
+                    } else {
+                        incomplete += 1;
+                    }
+                }
+                is_valid
+            });
+            swarm.complete -= complete;
+            swarm.incomplete -= incomplete;
+        }
     }
 }
+
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+//     use std::net::IpAddr;
+
+//     #[test]
+//     fn test_announce() {
+//         let mut tracker = Tracker::new(TrackerConfig::default());
+//         tracker
+//             .announce(
+//                 [0u8; 20],
+//                 [1u8; 20],
+//                 1,
+//                 SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 2000),
+//                 Event::None,
+//                 0,
+//                 0,
+//                 2300,
+//                 0,
+//             )
+//             .unwrap();
+//         tracker
+//             .announce(
+//                 [0u8; 20],
+//                 [2u8; 20],
+//                 2,
+//                 SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 2000),
+//                 Event::None,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//             )
+//             .unwrap();
+//         tracker
+//             .announce(
+//                 [0u8; 20],
+//                 [3u8; 20],
+//                 3,
+//                 SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 2000),
+//                 Event::None,
+//                 0,
+//                 0,
+//                 0,
+//                 0,
+//             )
+//             .unwrap();
+//         println!("{:#?}", tracker);
+//         println!(
+//             "{:#?}",
+//             tracker.select_peers([0u8; 20], [2u8; 20], 2, true, false, 32)
+//         );
+//     }
+// }
