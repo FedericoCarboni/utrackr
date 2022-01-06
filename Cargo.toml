@@ -1,3 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["core"]
+members = ["core", "udp", "utrackr"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+incremental = false

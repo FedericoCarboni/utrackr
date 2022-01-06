@@ -1,0 +1,16 @@
+[package]
+name = "utrackr-udp"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+utrackr-core = { path = "../core" }
+blake3 = "1.2"
+arrayref = "0.3.6"
+rand = "0.8"
+tokio = { version = "1", features = ["rt", "macros", "sync", "net"] }
+log = "0.4"
+libc = "0.2"
+# ed25519-dalek = "1"
