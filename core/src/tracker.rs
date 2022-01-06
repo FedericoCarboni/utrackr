@@ -9,7 +9,8 @@ use futures::future::join_all;
 use tokio::sync::RwLock;
 
 use crate::config::TrackerConfig;
-use crate::swarm::{Announce, AnnounceError, Event, Swarm};
+use crate::Error;
+use crate::swarm::{Announce, Event, Swarm};
 
 struct TrackerInner {
     swarms: RwLock<HashMap<[u8; 20], RwLock<Swarm>>>,
@@ -26,26 +27,28 @@ impl TrackerInner {
     pub async fn announce(
         &self,
         announce: Announce,
-    ) -> Result<Option<(i32, i32, Vec<([u8; 20], SocketAddr)>)>, AnnounceError> {
+    ) -> Result<Option<(i32, i32, Vec<([u8; 20], SocketAddr)>)>, Error> {
         let swarms = self.swarms.read().await;
         if let Some(swarm) = swarms.get(&announce.info_hash) {
-            let swarm_read = swarm.read().await;
-            swarm_read.validate(&announce)?;
-            let result = if matches!(announce.event, Event::Stopped | Event::Paused) {
-                Ok(None)
-            } else {
-                Ok(Some((
-                    swarm_read.complete(),
-                    swarm_read.incomplete(),
-                    swarm_read.select(&announce),
-                )))
+            let result = {
+                let swarm_read = swarm.read().await;
+                swarm_read.validate(&announce)?;
+                if matches!(announce.event, Event::Stopped | Event::Paused) {
+                    Ok(None)
+                } else {
+                    Ok(Some((
+                        swarm_read.complete(),
+                        swarm_read.incomplete(),
+                        swarm_read.select(&announce),
+                    )))
+                }
             };
-            drop(swarm_read);
             swarm.write().await.announce(&announce);
             result
         } else if !self.config.enable_unknown_torrents {
-            Err(AnnounceError::UnknownTorrent)
+            Err(Error::TorrentNotFound)
         } else {
+            // drop the read lock
             drop(swarms);
             let mut swarms = self.swarms.write().await;
             let mut swarm = Swarm::default();
@@ -70,7 +73,7 @@ impl TrackerInner {
     }
     pub async fn evict(&self) {
         let now = Instant::now();
-        let threshold = Duration::from_secs(self.config.max_interval);
+        let threshold = Duration::from_secs(self.config.max_interval as u64);
         let swarms = self.swarms.read().await;
         join_all(
             swarms
@@ -101,13 +104,23 @@ impl Tracker {
     pub async fn announce(
         &self,
         mut announce: Announce,
-    ) -> Result<Option<(i32, i32, Vec<([u8; 20], SocketAddr)>)>, AnnounceError> {
+    ) -> Result<Option<(i32, i32, Vec<([u8; 20], SocketAddr)>)>, Error> {
+        // No reasonable BitTorrent client should ever listen for peer
+        // connections on system ports (1-1023). We refuse the announce request
+        // immediately to avoid being part of a DDOS attack. Of course 0 is not
+        // a valid port so it's discarded as well.
+        if announce.addr.port() < 1024 {
+            return Err(Error::InvalidPort);
+        }
         if announce.num_want < 0 {
             announce.num_want = self.inner.config.default_num_want;
         } else if announce.num_want > self.inner.config.max_num_want {
             announce.num_want = self.inner.config.max_num_want;
         }
         self.inner.announce(announce).await
+    }
+    pub fn interval(&self) -> i32 {
+        self.inner.config.interval
     }
     pub fn start_autosave(&self) {
         let tracker = self.inner.clone();
@@ -318,7 +331,7 @@ mod test {
             .unwrap();
         let results = tracker.scrape(&[[0; 20]]).await;
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0], Some((1, 1, 1)));
+        assert_eq!(results[0], (1, 1, 1));
     }
 
     #[tokio::test]
@@ -332,6 +345,6 @@ mod test {
             .await
             .unwrap();
         tracker.inner.evict().await;
-        assert_eq!(tracker.scrape(&[[0; 20]]).await, vec![Some((0, 0, 0))]);
+        assert_eq!(tracker.scrape(&[[0; 20]]).await, vec![(0, 0, 0)]);
     }
 }

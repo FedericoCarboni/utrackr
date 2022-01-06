@@ -1,21 +1,51 @@
-use std::{io::BufReader, io::prelude::*, fs::File};
+use std::{fs::File, io::prelude::*};
 
-use utrackr_core::{Tracker, Config};
+use utrackr_core::{Config, Tracker};
 use utrackr_udp::UdpTracker;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Info)
+        .parse_env("UTRACKR_LOG")
+        .init();
 
     let mut f = File::open("utrackr.toml").unwrap();
     let mut s = String::new();
     f.read_to_string(&mut s).unwrap();
 
-    let cfg: Config = toml::from_str(&s).unwrap();
-    // let mut f = File::create("utrackr.toml").unwrap();
+    let cfg: Config = match toml::from_str(&s) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::error!("{}", err);
+            panic!("{}", err);
+        }
+    };
 
-    // f.write(toml::to_string_pretty(&cfg).unwrap().as_bytes()).unwrap();
+    if cfg.udp.disable {
+        log::error!("udp tracker disabled");
+        panic!("udp tracker disabled");
+    }
 
-    UdpTracker::bind(Tracker::new(cfg.tracker), cfg.udp).await.unwrap()
-        .run_until(tokio::signal::ctrl_c()).await;
+    let tracker = Tracker::new(cfg.tracker);
+    tracker.start_autosave();
+
+    let mut udp_join_handle = if cfg.udp.disable {
+        tokio::spawn(async {})
+    } else {
+        match UdpTracker::bind(tracker.clone(), cfg.udp).await {
+            Ok(udp) => tokio::spawn(udp.run()),
+            Err(err) => {
+                log::error!("udp tracker failed {}", err);
+                panic!("{}", err);
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            log::info!("shutting down");
+        }
+        _ = &mut udp_join_handle => {}
+    }
 }

@@ -6,11 +6,7 @@ use std::{
 
 use rand::seq::IteratorRandom;
 
-#[derive(Debug)]
-pub enum AnnounceError {
-    UnknownTorrent,
-    InvalidKey,
-}
+use crate::Error;
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -50,23 +46,12 @@ pub struct Peer {
 }
 
 /// In-Memory store of a peer swarm
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Swarm {
     complete: i32,
     incomplete: i32,
     downloaded: i32,
     peers: HashMap<[u8; 20], Peer>,
-}
-
-impl Default for Swarm {
-    fn default() -> Self {
-        Self {
-            complete: 0,
-            incomplete: 0,
-            downloaded: 0,
-            peers: HashMap::new(),
-        }
-    }
 }
 
 impl Swarm {
@@ -82,14 +67,14 @@ impl Swarm {
     pub fn downloaded(&self) -> i32 {
         self.downloaded
     }
-    pub fn validate(&self, announce: &Announce) -> Result<(), AnnounceError> {
+    pub fn validate(&self, announce: &Announce) -> Result<(), Error> {
         if let Some(peer) = self.peers.get(&announce.peer_id) {
             // BitTorrent clients should use the key parameter to prove their
             // identity should their ip address
             if peer.addr.ip() != announce.addr.ip()
                 && (peer.key != announce.key || peer.key.is_none())
             {
-                return Err(AnnounceError::InvalidKey);
+                return Err(Error::IpAddrChanged);
             }
         }
         Ok(())

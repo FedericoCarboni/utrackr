@@ -1,7 +1,6 @@
 use std::{
-    io,
-    fmt,
-    net::{IpAddr, SocketAddr, ToSocketAddrs},
+    fmt, io,
+    net::{SocketAddr, ToSocketAddrs},
 };
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -69,7 +68,7 @@ impl<'de> Deserialize<'de> for BindAddrs {
                 addrs: vec![s.parse::<SocketAddr>().map_err(de::Error::custom)?],
             }),
             Value::StrVec(s) => {
-                if s.len() < 1 {
+                if s.is_empty() {
                     return Err(de::Error::invalid_length(s.len(), &">=1"));
                 }
                 Ok(Self {
@@ -113,14 +112,14 @@ pub struct TrackerConfig {
 
     /// How often clients should announce themselves
     #[serde(default = "TrackerConfig::default_interval")]
-    pub interval: u64,
+    pub interval: i32,
     /// How long clients should be forced to wait before announcing again
     #[serde(default = "TrackerConfig::default_min_interval")]
-    pub min_interval: u64,
+    pub min_interval: i32,
     /// How long the tracker should wait before removing a peer from the swarm,
     /// defaults to 2x interval
     #[serde(default = "TrackerConfig::default_max_interval")]
-    pub max_interval: u64,
+    pub max_interval: i32,
 
     /// Default number of peers for each announce request, defaults to 32
     #[serde(default = "TrackerConfig::default_default_num_want")]
@@ -169,13 +168,13 @@ impl Default for TrackerConfig {
 }
 
 impl TrackerConfig {
-    fn default_interval() -> u64 {
+    fn default_interval() -> i32 {
         900
     }
-    fn default_min_interval() -> u64 {
+    fn default_min_interval() -> i32 {
         450
     }
-    fn default_max_interval() -> u64 {
+    fn default_max_interval() -> i32 {
         1800
     }
     fn default_default_num_want() -> i32 {
@@ -234,7 +233,7 @@ impl Default for HttpConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct UdpConfig {
     #[serde(default = "default_false")]
     pub disable: bool,
@@ -242,28 +241,10 @@ pub struct UdpConfig {
     pub bind: BindAddrs,
 }
 
-impl UdpConfig {
-}
-
-impl Default for UdpConfig {
-    fn default() -> Self {
-        Self {
-            disable: false,
-            bind: BindAddrs::default(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct DatabaseConfig {}
 
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {}
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
     pub tracker: TrackerConfig,
@@ -273,16 +254,4 @@ pub struct Config {
     pub udp: UdpConfig,
     #[cfg(feature = "database")]
     pub database: DatabaseConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            tracker: Default::default(),
-            // http: Default::default(),
-            udp: Default::default(),
-            #[cfg(feature = "database")]
-            database: Default::default(),
-        }
-    }
 }

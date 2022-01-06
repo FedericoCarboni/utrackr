@@ -1,0 +1,21 @@
+[tracker]
+enable_unknown_torrents = false
+interval = 900
+min_interval = 450
+max_interval = 1800
+default_num_want = 32
+max_num_want = 128
+ignore_ip_param = true
+
+[http]
+disable = false
+bind = "[::]:6969"
+compact = true
+compact_peers6 = true
+compact_only = false
+compact_only_except_ipv6 = false
+gzip = true
+
+[udp]
+disable = false
+bind = "[::]:6969"
