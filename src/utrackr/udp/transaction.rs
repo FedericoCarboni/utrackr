@@ -6,10 +6,10 @@ use std::{
 };
 
 use arrayref::array_ref;
-use blake3::Hasher;
+use ring::digest;
 use tokio::net::UdpSocket;
 
-use utrackr_core::{Announce, Error, Event, Tracker};
+use crate::core::{Announce, Error, Event, Tracker};
 
 // http://xbtt.sourceforge.net/udp_tracker_protocol.html
 // https://www.bittorrent.org/beps/bep_0015.html
@@ -60,15 +60,15 @@ const ACTION_SCRAPE: [u8; 4] = 0x2i32.to_be_bytes();
 fn make_connection_id(secret: &[u8; 8], time_frame: &[u8; 8], ip: &[u8; 16]) -> [u8; 8] {
     // let data = [..secret, ..time_frame, ..ip];
     let mut connection_id = [0u8; 8];
-    let mut digest = Hasher::new();
+    let mut digest = digest::Context::new(&digest::SHA256);
     // the connection_id must not be guessable by clients
     digest.update(secret);
     // the connection_id should be invalidated every 2 minutes
     digest.update(time_frame);
     // the connection_id should change based on ip of the client
     digest.update(ip);
-    let hash = digest.finalize();
-    connection_id.copy_from_slice(&hash.as_bytes()[0..8]);
+    let hash = digest.finish();
+    connection_id.copy_from_slice(&hash.as_ref()[0..8]);
     connection_id
 }
 
@@ -216,9 +216,7 @@ impl Transaction {
         debug_assert!(message.len() <= 55, "error message too long");
         // make sure that the error message contains only printable ascii chars
         debug_assert!(
-            message
-                .bytes()
-                .any(|b| !(0x20..=0x7E).contains(&b)),
+            message.bytes().any(|b| !(0x20..=0x7E).contains(&b)),
             "error message contains non-ascii or non-printable ascii"
         );
 

@@ -3,10 +3,9 @@ use std::{io, sync::Arc};
 use rand::random;
 use tokio::net::UdpSocket;
 
+use crate::core::{Tracker, UdpConfig};
 use transaction::{Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE, SECRET_SIZE};
-use utrackr_core::{Tracker, UdpConfig};
 
-mod sockopt;
 mod transaction;
 
 pub struct UdpTracker {
@@ -19,9 +18,6 @@ impl UdpTracker {
     pub async fn bind(tracker: Tracker, config: UdpConfig) -> io::Result<Self> {
         let socket = UdpSocket::bind(config.bind.addrs()).await?;
         let addr = socket.local_addr()?;
-        if addr.is_ipv6() {
-            sockopt::unset_ipv6_v6only(&socket)?;
-        }
         log::info!("udp tracker bound to {:?}", addr);
         let secret: [u8; SECRET_SIZE] = random();
         Ok(Self {

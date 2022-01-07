@@ -1,7 +1,7 @@
 use std::{fs::File, io::prelude::*};
 
-use utrackr_core::{Config, Tracker};
-use utrackr_udp::UdpTracker;
+use utrackr::core::{Config, Tracker};
+use utrackr::udp::UdpTracker;
 
 #[tokio::main]
 async fn main() {

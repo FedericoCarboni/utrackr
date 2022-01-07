@@ -1,26 +1,31 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use futures::future::join_all;
+use futures::{
+    future::join_all,
+    stream::{FuturesUnordered, StreamExt},
+};
 use tokio::sync::RwLock;
 
-use crate::config::TrackerConfig;
-use crate::Error;
-use crate::swarm::{Announce, Event, Swarm};
+use crate::core::{
+    config::TrackerConfig,
+    swarm::{Announce, Event, Swarm},
+    Error,
+};
 
 struct TrackerInner {
-    swarms: RwLock<HashMap<[u8; 20], RwLock<Swarm>>>,
+    swarms: RwLock<BTreeMap<[u8; 20], RwLock<Swarm>>>,
     config: TrackerConfig,
 }
 
 impl TrackerInner {
     pub fn new(config: TrackerConfig) -> Self {
         Self {
-            swarms: RwLock::new(HashMap::new()),
+            swarms: RwLock::new(BTreeMap::new()),
             config,
         }
     }
@@ -75,12 +80,17 @@ impl TrackerInner {
         let now = Instant::now();
         let threshold = Duration::from_secs(self.config.max_interval as u64);
         let swarms = self.swarms.read().await;
-        join_all(
-            swarms
-                .iter()
-                .map(|(_, swarm)| async { swarm.write().await.evict(now, threshold) }),
-        )
-        .await;
+        while swarms
+            .iter()
+            .map(|(_, swarm)| async {
+                let mut swarm = swarm.write().await;
+                swarm.evict(now, threshold);
+            })
+            .collect::<FuturesUnordered<_>>()
+            .next()
+            .await
+            .is_some()
+        {}
     }
 }
 

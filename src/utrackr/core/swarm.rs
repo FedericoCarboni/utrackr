@@ -1,12 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     net::SocketAddr,
     time::{Duration, Instant},
 };
 
 use rand::seq::IteratorRandom;
 
-use crate::Error;
+use crate::core::Error;
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -51,7 +51,7 @@ pub struct Swarm {
     complete: i32,
     incomplete: i32,
     downloaded: i32,
-    peers: HashMap<[u8; 20], Peer>,
+    peers: BTreeMap<[u8; 20], Peer>,
 }
 
 impl Swarm {
@@ -74,10 +74,14 @@ impl Swarm {
             if peer.addr.ip() != announce.addr.ip()
                 && (peer.key != announce.key || peer.key.is_none())
             {
-                return Err(Error::IpAddrChanged);
+                return Err(Error::IpAddressChanged);
             }
         }
         Ok(())
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.peers.is_empty()
     }
     pub fn select(&self, announce: &Announce) -> Vec<([u8; 20], SocketAddr)> {
         self.peers
