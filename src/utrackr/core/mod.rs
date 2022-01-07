@@ -6,3 +6,7 @@ pub use swarm::*;
 pub use config::*;
 mod error;
 pub use error::Error;
+
+/// This is a hard-coded maximum value for the number of peers that can be
+/// returned in an ANNOUNCE response.
+pub const MAX_NUM_WANT: usize = 256;

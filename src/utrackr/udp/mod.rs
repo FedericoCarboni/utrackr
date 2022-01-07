@@ -1,16 +1,23 @@
+//! The `utrackr::udp` modules implements BEP 15[^1].
+//!
+//! [^1]: [UDP Tracker Protocol for BitTorrent](https://www.bittorrent.org/beps/bep_0015.html)
+
 use std::{io, sync::Arc};
 
 use rand::random;
 use tokio::net::UdpSocket;
 
 use crate::core::{Tracker, UdpConfig};
-use transaction::{Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE, SECRET_SIZE};
+use crate::udp::protocol::Secret;
+use transaction::{Transaction};
+use protocol::{MAX_PACKET_SIZE, MIN_PACKET_SIZE};
 
 mod transaction;
+mod protocol;
 
 pub struct UdpTracker {
     socket: Arc<UdpSocket>,
-    secret: [u8; SECRET_SIZE],
+    secret: Secret,
     tracker: Tracker,
 }
 
@@ -19,7 +26,7 @@ impl UdpTracker {
         let socket = UdpSocket::bind(config.bind.addrs()).await?;
         let addr = socket.local_addr()?;
         log::info!("udp tracker bound to {:?}", addr);
-        let secret: [u8; SECRET_SIZE] = random();
+        let secret = random();
         Ok(Self {
             socket: Arc::new(socket),
             secret,

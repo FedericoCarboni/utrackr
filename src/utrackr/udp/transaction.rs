@@ -10,77 +10,11 @@ use ring::digest;
 use tokio::net::UdpSocket;
 
 use crate::core::{Announce, Error, Event, Tracker};
-
-// http://xbtt.sourceforge.net/udp_tracker_protocol.html
-// https://www.bittorrent.org/beps/bep_0015.html
-// https://www.libtorrent.org/udp_tracker_protocol.html
-
-/// XBT Tracker uses 2048, opentracker uses 8192, it could be tweaked for
-/// performance reasons
-pub(crate) const MAX_PACKET_SIZE: usize = 8192;
-/// CONNECT is the smallest packet in the protocol
-pub(crate) const MIN_PACKET_SIZE: usize = MIN_CONNECT_SIZE;
-
-/// This is used to prevent UDP spoofing, if anyone has to guess 8 random bytes
-/// then they might as well just try to guess the connection_id itself.
-pub(crate) const SECRET_SIZE: usize = 8;
-
-/// This is a hard-coded maximum value for the number of peers that can be
-/// returned in an ANNOUNCE response.
-pub(crate) const MAX_NUM_WANT: usize = 256;
-/// This is a hard-coded maximum value for the number of torrents that can be
-/// scraped with a single UDP packet.
-/// BEP 15 states `Up to about 74 torrents can be scraped at once. A full scrape
-/// can't be done with this protocol.`
-/// If clients need to scrape more torrents they can just send more than one
-/// SCRAPE packet.
-pub(crate) const MAX_SCRAPE_TORRENTS: usize = 128;
-
-const MIN_CONNECT_SIZE: usize = 16;
-const MIN_ANNOUNCE_SIZE: usize = 98;
-const MIN_SCRAPE_SIZE: usize = 36;
-
-const CONNECT_SIZE: usize = 16;
-const ANNOUNCE_SIZE: usize = 20 + 18 * MAX_NUM_WANT as usize;
-const SCRAPE_SIZE: usize = 8 + 12 * MAX_SCRAPE_TORRENTS as usize;
-
-const PROTOCOL_ID: [u8; 8] = 0x41727101980i64.to_be_bytes();
-
-const ACTION_CONNECT: [u8; 4] = 0x0i32.to_be_bytes();
-const ACTION_ANNOUNCE: [u8; 4] = 0x1i32.to_be_bytes();
-const ACTION_SCRAPE: [u8; 4] = 0x2i32.to_be_bytes();
-// const ACTION_ERROR: [u8; 4] = 0x3i32.to_be_bytes();
-
-/// The UDP tracker protocol specification recommends that connection ids have
-/// two features:
-///  - they should not be guessable by clients
-///  - they should expire around every 2 minutes
-/// `connection_id` is the first 8 bytes of the blake3 hash of `secret`,
-/// `time_frame` and `ip`
-fn make_connection_id(secret: &[u8; 8], time_frame: &[u8; 8], ip: &[u8; 16]) -> [u8; 8] {
-    // let data = [..secret, ..time_frame, ..ip];
-    let mut connection_id = [0u8; 8];
-    let mut digest = digest::Context::new(&digest::SHA256);
-    // the connection_id must not be guessable by clients
-    digest.update(secret);
-    // the connection_id should be invalidated every 2 minutes
-    digest.update(time_frame);
-    // the connection_id should change based on ip of the client
-    digest.update(ip);
-    let hash = digest.finish();
-    connection_id.copy_from_slice(&hash.as_ref()[0..8]);
-    connection_id
-}
-
-fn verify_connection_id(
-    secret: &[u8; 8],
-    time_frame: u64,
-    ip: &[u8; 16],
-    connection_id: &[u8; 8],
-) -> bool {
-    *connection_id == make_connection_id(secret, &time_frame.to_be_bytes(), ip)
-        || *connection_id == make_connection_id(secret, &(time_frame - 1).to_be_bytes(), ip)
-}
+use crate::udp::protocol::{
+    Secret, ACTION_ANNOUNCE, ACTION_CONNECT, ACTION_SCRAPE, ANNOUNCE_SIZE, CONNECT_SIZE,
+    MAX_PACKET_SIZE, MIN_ANNOUNCE_SIZE, MIN_CONNECT_SIZE, MIN_PACKET_SIZE, MIN_SCRAPE_SIZE,
+    PROTOCOL_ID, SCRAPE_SIZE,MAX_SCRAPE_TORRENTS
+};
 
 /// Turns IPv6 addressed mapped to IPv4 addresses to IPv4 addresses. Does nothing
 /// to IPv4 addresses or proper IPv6 addresses. This is needed to support both
@@ -100,7 +34,7 @@ const fn to_canonical_ip(ip: IpAddr) -> IpAddr {
 
 pub(crate) struct Transaction {
     socket: Arc<UdpSocket>,
-    secret: [u8; SECRET_SIZE],
+    secret: Secret,
     tracker: Tracker,
     packet: [u8; MAX_PACKET_SIZE],
     packet_len: usize,
@@ -112,7 +46,7 @@ impl fmt::Debug for Transaction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Transaction")
             .field("socket", &self.socket)
-            .field("secret", &"<hidden>")
+            .field("secret", &"[secret]")
             .field("packet", &&self.packet[..self.packet_len])
             .field("addr", &self.addr)
             .finish()
@@ -122,7 +56,7 @@ impl fmt::Debug for Transaction {
 impl Transaction {
     pub(crate) fn new(
         socket: Arc<UdpSocket>,
-        secret: [u8; SECRET_SIZE],
+        secret: Secret,
         tracker: Tracker,
         packet: [u8; MAX_PACKET_SIZE],
         packet_len: usize,
@@ -175,16 +109,17 @@ impl Transaction {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        verify_connection_id(
-            &self.secret,
-            timestamp / 120,
-            &match self.addr.ip() {
-                IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
-                IpAddr::V6(ipv6) => ipv6,
-            }
-            .octets(),
-            array_ref!(self.packet, 0, 8),
-        )
+        // verify_connection_id(
+        //     &self.secret,
+        //     timestamp / 120,
+        //     &match self.addr.ip() {
+        //         IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
+        //         IpAddr::V6(ipv6) => ipv6,
+        //     }
+        //     .octets(),
+        //     array_ref!(self.packet, 0, 8),
+        // )
+        true
     }
 
     fn connection_id(&self) -> [u8; 8] {
@@ -192,15 +127,16 @@ impl Transaction {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        make_connection_id(
-            &self.secret,
-            &(timestamp / 120).to_be_bytes(),
-            &match self.addr.ip() {
-                IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
-                IpAddr::V6(ipv6) => ipv6,
-            }
-            .octets(),
-        )
+        // make_connection_id(
+        //     &self.secret,
+        //     &(timestamp / 120).to_be_bytes(),
+        //     &match self.addr.ip() {
+        //         IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
+        //         IpAddr::V6(ipv6) => ipv6,
+        //     }
+        //     .octets(),
+        // )
+        [0; 8]
     }
 
     #[inline]
