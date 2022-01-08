@@ -5,7 +5,7 @@ edition = "2021"
 repository = "https://github.com/FedericoCarboni/utrackr"
 readme = "README.md"
 description = """
-Hackable, peformance-focused BitTorrent tracker.
+Hackable peformance-focused BitTorrent tracker.
 """
 
 [lib]
