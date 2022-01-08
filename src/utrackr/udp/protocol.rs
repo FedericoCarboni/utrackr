@@ -46,14 +46,6 @@ pub const ACTION_ANNOUNCE: [u8; 4] = 0x1i32.to_be_bytes();
 pub const ACTION_SCRAPE: [u8; 4] = 0x2i32.to_be_bytes();
 // const ACTION_ERROR: [u8; 4] = 0x3i32.to_be_bytes();
 
-#[inline(always)]
-fn copy_from_slice<T: Copy>(a: &mut [T], b: &[T]) {
-    debug_assert_eq!(a.len(), b.len());
-    for i in 0..a.len() {
-        a[i] = b[i];
-    }
-}
-
 #[inline]
 fn ip_to_bytes(ip: &IpAddr) -> [u8; 16] {
     match ip {
@@ -71,9 +63,9 @@ fn ip_to_bytes(ip: &IpAddr) -> [u8; 16] {
 #[inline]
 fn make_connection_id(secret: &Secret, two_min_window: u64, remote_ip: &[u8; 16]) -> [u8; 8] {
     let mut data = [0u8; 32];
-    copy_from_slice(&mut data[0..8], secret);
-    copy_from_slice(&mut data[8..16], &two_min_window.to_be_bytes());
-    copy_from_slice(&mut data[16..32], remote_ip);
+    data[0..8].copy_from_slice(secret);
+    data[8..16].copy_from_slice(&two_min_window.to_be_bytes());
+    data[16..32].copy_from_slice(remote_ip);
     let sha2 = digest::digest(&digest::SHA256, &data);
     // connection_id is only 8 bytes
     *array_ref!(sha2.as_ref(), 0, 8)

@@ -15,6 +15,7 @@ use crate::core::{Tracker, UdpConfig};
 use crate::udp::protocol::{Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE};
 
 mod protocol;
+mod path_and_query;
 
 pub struct UdpTracker {
     socket: Arc<UdpSocket>,
