@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     time::{Duration, Instant},
 };
 
@@ -30,6 +30,7 @@ pub struct Announce {
     pub redudant: i64,
     pub event: Event,
     pub addr: SocketAddr,
+    pub ip_param: Option<IpAddr>,
     pub key: Option<u32>,
     pub num_want: i32,
     pub instant: Instant,

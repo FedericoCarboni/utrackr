@@ -98,12 +98,12 @@ impl Serialize for BindAddrs {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TrackerConfig {
     /// Whether the tracker should accept announce requests for unknown torrents
-    #[serde(default = "default_true")]
-    pub enable_unknown_torrents: bool,
+    #[serde(default)]
+    pub announce_unknown_torrents: bool,
     /// Whether the tracker should insert unknown torrents to the database.
     /// This does nothing if no database is enabled.
     #[cfg(feature = "database")]
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub insert_unknown_torrents: bool,
 
     /// Database save interval, in seconds
@@ -128,41 +128,32 @@ pub struct TrackerConfig {
     #[serde(default = "TrackerConfig::default_max_num_want")]
     pub max_num_want: i32,
 
-    /// Whether to ignore the `ip` announce parameter, defaults to true
-    #[serde(default = "default_true")]
-    pub ignore_ip_param: bool,
+    /// Whether to honor the `ip` announce parameter, defaults to false.
+    /// This option is VERY unsafe, make sure that you prevent ip spoofing somehow.
+    #[serde(default)]
+    pub unsafe_honor_ip_param: bool,
+    // #[serde(default)]
+    // pub honor_ip_param_if_local: bool,
 }
 
 impl Default for TrackerConfig {
     fn default() -> Self {
         Self {
-            /// Whether the tracker should accept announce requests for unknown torrents
-            enable_unknown_torrents: true,
-            /// Whether the tracker should insert unknown torrents to the database.
-            /// This does nothing if no database is enabled.
+            announce_unknown_torrents: false,
             #[cfg(feature = "database")]
             insert_unknown_torrents: true,
-
-            /// Database save interval, in seconds
-            /// Does nothing if no database is enabled
+            
             #[cfg(feature = "database")]
             autosave_interval: 60,
 
-            /// How often clients should announce themselves, defaults to 1800
             interval: 900,
-            /// How long clients should wait before announcing
             min_interval: 450,
-            /// How long the tracker should wait before removing a peer from the swarm,
-            /// defaults to 3600
             max_interval: 1800,
 
-            /// Default number of peers for each announce request, defaults to 32
             default_num_want: 32,
-            /// Maximum number of peers that will be put in peers, defaults to 128
             max_num_want: 128,
 
-            /// Whether to ignore the `ip` announce parameter, defaults to true
-            ignore_ip_param: true,
+            unsafe_honor_ip_param: false,
         }
     }
 }
@@ -235,14 +226,18 @@ impl Default for HttpConfig {
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct UdpConfig {
-    #[serde(default = "default_false")]
+    #[serde(default)]
     pub disable: bool,
     #[serde(default)]
     pub bind: BindAddrs,
+    #[serde(default)]
+    pub ipv6_only: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub struct DatabaseConfig {}
+pub struct DatabaseConfig {
+
+}
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct Config {

@@ -50,7 +50,7 @@ impl TrackerInner {
             };
             swarm.write().await.announce(&announce);
             result
-        } else if !self.config.enable_unknown_torrents {
+        } else if !self.config.announce_unknown_torrents {
             Err(Error::TorrentNotFound)
         } else {
             // drop the read lock
@@ -127,6 +127,11 @@ impl Tracker {
         } else if announce.num_want > self.inner.config.max_num_want {
             announce.num_want = self.inner.config.max_num_want;
         }
+        if let Some(ip) = announce.ip_param {
+            if self.inner.config.unsafe_honor_ip_param {
+                announce.addr = SocketAddr::new(ip, announce.addr.port());
+            }
+        }
         self.inner.announce(announce).await
     }
     pub fn interval(&self) -> i32 {
@@ -171,6 +176,7 @@ mod test {
                     uploaded: 0,
                     left: i64::MAX,
                     addr: ([150, 150, 150, 150], 6881).into(),
+                    ip_param: None,
                     event: Event::Started,
                     key: None,
                     num_want: 32,

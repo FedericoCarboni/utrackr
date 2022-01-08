@@ -1,18 +1,19 @@
-//! The `utrackr::udp` modules implements BEP 15[^1].
-//!
-//! [^1]: [UDP Tracker Protocol for BitTorrent](https://www.bittorrent.org/beps/bep_0015.html)
+//! [UDP Tracker Protocol for BitTorrent](https://www.bittorrent.org/beps/bep_0015.html)
+//! This module implements the UDP Tracker Protocol as specified by BEP 15.
 
-use std::{io, sync::Arc};
+use std::{
+    io,
+    net::{IpAddr, Ipv4Addr},
+    sync::Arc,
+    time::Instant,
+};
 
 use rand::random;
 use tokio::net::UdpSocket;
 
 use crate::core::{Tracker, UdpConfig};
-use crate::udp::protocol::Secret;
-use transaction::{Transaction};
-use protocol::{MAX_PACKET_SIZE, MIN_PACKET_SIZE};
+use crate::udp::protocol::{Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE};
 
-mod transaction;
 mod protocol;
 
 pub struct UdpTracker {
@@ -33,6 +34,7 @@ impl UdpTracker {
             tracker,
         })
     }
+    /// Run the server indefinitely, this function is cancel safe.
     pub async fn run(self) {
         loop {
             let mut packet = [0; MAX_PACKET_SIZE];
@@ -40,6 +42,7 @@ impl UdpTracker {
                 Ok((packet_len, addr)) => {
                     // ill-sized packets are ignored
                     if packet_len < MIN_PACKET_SIZE {
+                        log::trace!("packet too small: received packet of length {}", packet_len,);
                         continue;
                     }
                     if packet_len > MAX_PACKET_SIZE {
@@ -50,14 +53,24 @@ impl UdpTracker {
                         continue;
                     }
                     log::trace!("received packet of length {}", packet_len);
-                    let mut transaction = Transaction::new(
-                        Arc::clone(&self.socket),
-                        self.secret,
-                        self.tracker.clone(),
+                    let transaction = Transaction {
+                        socket: Arc::clone(&self.socket),
+                        secret: self.secret,
+                        tracker: self.tracker.clone(),
+                        remote_ip: match addr.ip() {
+                            ipv4 @ IpAddr::V4(_) => ipv4,
+                            ipv6 @ IpAddr::V6(v6) => match v6.octets() {
+                                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
+                                    IpAddr::V4(Ipv4Addr::new(a, b, c, d))
+                                }
+                                _ => ipv6,
+                            },
+                        },
                         packet,
                         packet_len,
                         addr,
-                    );
+                        instant: Instant::now(),
+                    };
                     // handle the request concurrently
                     tokio::spawn(async move {
                         if let Err(err) = transaction.handle().await {
