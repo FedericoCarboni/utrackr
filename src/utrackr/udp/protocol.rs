@@ -1,7 +1,6 @@
 use std::{
     fmt, io,
-    net::IpAddr,
-    net::SocketAddr,
+    net::{IpAddr,SocketAddr},
     sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
@@ -11,10 +10,11 @@ use ring::digest;
 use tokio::net::UdpSocket;
 
 use crate::core::{Announce, Error, Event, Tracker, MAX_NUM_WANT};
+use super::extensions::parse_request;
 
 /// XBT Tracker uses 2048, opentracker uses 8192, it could be tweaked for
 /// performance reasons
-pub(in crate::udp) const MAX_PACKET_SIZE: usize = 8192;
+pub(in crate::udp) const MAX_PACKET_SIZE: usize = 2048;
 /// CONNECT is the smallest packet in the protocol
 pub(in crate::udp) const MIN_PACKET_SIZE: usize = MIN_CONNECT_SIZE;
 
@@ -29,7 +29,7 @@ pub(in crate::udp) type Secret = [u8; 8];
 /// can't be done with this protocol.`
 /// If clients need to scrape more torrents they can just send more than one
 /// SCRAPE packet.
-pub(in crate::udp) const MAX_SCRAPE_TORRENTS: usize = 128;
+pub(in crate::udp) const MAX_SCRAPE_TORRENTS: usize = 80;
 
 pub const MIN_CONNECT_SIZE: usize = 16;
 pub const MIN_ANNOUNCE_SIZE: usize = 98;
@@ -322,14 +322,11 @@ impl Transaction {
             i += 1;
         }
 
-        let mut offset = 8;
-        let torrents = self.tracker.scrape(&info_hashes[..i]).await;
-        for (seeders, leechers, completed) in torrents {
-            rpkt[offset..offset + 4].copy_from_slice(&seeders.to_be_bytes());
-            rpkt[offset + 4..offset + 8].copy_from_slice(&completed.to_be_bytes());
-            rpkt[offset + 8..offset + 12].copy_from_slice(&leechers.to_be_bytes());
-            offset += 12;
-        }
+        self.tracker.scrape(&info_hashes[..i], |index, (seeders, leechers, completed)| {
+            rpkt[index * 12 + 8..index * 12 + 12].copy_from_slice(&seeders.to_be_bytes());
+            rpkt[index * 12 + 12..index * 12 + 16].copy_from_slice(&completed.to_be_bytes());
+            rpkt[index * 12 + 16..index * 12 + 20].copy_from_slice(&leechers.to_be_bytes());
+        }).await;
 
         if let Err(err) = self.socket.send_to(&rpkt[..offset], self.addr).await {
             log::error!("failed to send SCRAPE response: {}", err);
