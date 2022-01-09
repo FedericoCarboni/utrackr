@@ -1,21 +1,45 @@
 [tracker]
-enable_unknown_torrents = false
+# How often should peers announce themselves
 interval = 900
-min_interval = 450
+# Minimum interval between announces, if peers announce more often the tracker
+# will always return an empty peer list to preserve bandwidth
+min_interval = 60
+# How long the tracker should wait before removing a peer from the swarm
 max_interval = 1800
+# Default number of peers returned if numwant is not specified, (cannot be greater than 256)
 default_num_want = 32
+# Maximum number of peers the tracker can return, (cannot be greater than 256)
 max_num_want = 128
-ignore_ip_param = true
+# Wheather the tracker should handle announces from torrents that are not in the database
+announce_unknown_torrents = false
+# Wheather the tracker should accept the ip parameter. Note that if this option
+# is enabled the tracker will ALWAYS assume that it is valid.
+unsafe_honor_ip_param = false
+# If this option is enabled, the ip parameter will be accepted only if the request
+# came from a local address.
+honor_ip_param_if_local = false
 
-[http]
-disable = false
-bind = "[::]:6969"
-compact = true
-compact_peers6 = true
-compact_only = false
-compact_only_except_ipv6 = false
-gzip = true
+# enable torrent verification using ED25519 signatures, requires BEP 41 support
+[tracker.ed25519]
+# The encoding of the signature inside the url query.
+encoding = "base64" # may also be "hex", or "binary"
+# The query parameter name to extract the signature from. Cannot be more than 32
+# characters long.
+param_name = "x-verify"
+# ED25519 public key used to verify torrents
+public_key = "" # may be a pem encoded string or a path to a pem encoded file
+# If set to true the tracker will require this verification even for torrents
+# that are in the database
+required = false
+
+[tracker.database]
+autosave = 60
 
 [udp]
+# Disables the udp protocol
 disable = false
+# The address to bind to, surround IPv6 addresses with square brackets
 bind = "[::]:6969"
+# By default, when bound to an IPv6 address, the tracker will serve both IPv4 and
+# IPv6 clients. This option disables IPv4 support.
+ipv6_only = false
