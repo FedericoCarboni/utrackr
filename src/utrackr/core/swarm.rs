@@ -8,7 +8,7 @@ use rand::seq::IteratorRandom;
 
 use crate::core::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Event {
     None,
     Completed,

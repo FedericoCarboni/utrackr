@@ -3,9 +3,14 @@ use std::{fmt, error};
 /// A tracker error, it indicates a problem with a client's request.
 pub enum Error {
     AccessDenied,
+    InvalidInfoHash,
+    InvalidPeerId,
     InvalidPort,
+    InvalidParams,
+    Internal,
     IpAddressChanged,
     TorrentNotFound,
+    Custom(&'static str)
 }
 
 impl Error {
@@ -15,9 +20,14 @@ impl Error {
     pub const fn message(&self) -> &'static str {
         match self {
             Error::AccessDenied => "access denied",
+            Error::InvalidInfoHash => "invalid info hash",
+            Error::InvalidParams => "invalid parameters",
+            Error::InvalidPeerId => "invalid peer id",
             Error::InvalidPort => "invalid port",
+            Error::Internal => "internal server error",
             Error::IpAddressChanged => "ip address changed",
             Error::TorrentNotFound => "torrent not found",
+            Error::Custom(message) => message,
         }
     }
 }
