@@ -5,11 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::{
-    future::join_all,
-    stream::{FuturesUnordered, StreamExt},
-};
-use smallvec::SmallVec;
+use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::RwLock;
 
 use crate::core::{
