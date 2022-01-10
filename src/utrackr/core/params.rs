@@ -26,6 +26,7 @@ pub trait ParseParamsExt<T>: TryInto<T, Error = Error> {
 /// 
 /// The query parameters will be parsed anyway to verify their validity, but
 /// they will not be deserialized.
+#[derive(Debug, Clone, Copy)]
 pub struct EmptyParseParamsExt;
 
 impl TryInto<()> for EmptyParseParamsExt {
@@ -93,7 +94,7 @@ impl<T, P: ParseParamsExt<T>> ParseAnnounceParams<T, P> {
     }
 }
 
-impl<T, Ext: ParseParamsExt<T>> TryInto<AnnounceParams<T>> for ParseAnnounceParams<T, Ext> {
+impl<T, P: ParseParamsExt<T>> TryInto<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
     type Error = Error;
 
     #[inline]
@@ -121,7 +122,7 @@ impl<T, Ext: ParseParamsExt<T>> TryInto<AnnounceParams<T>> for ParseAnnouncePara
     }
 }
 
-impl<T, Ext: ParseParamsExt<T>> ParseParamsExt<AnnounceParams<T>> for ParseAnnounceParams<T, Ext> {
+impl<T, P: ParseParamsExt<T>> ParseParamsExt<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
     fn parse(&mut self, key: &[u8], value: &[u8]) -> Result<(), Error> {
         match key {
             b"info_hash" => {

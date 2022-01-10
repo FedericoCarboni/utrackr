@@ -1,5 +1,5 @@
 [tracker]
-# How often should peers announce themselves
+# How often peers should announce themselves
 interval = 900
 # Minimum interval between announces, if peers announce more often the tracker
 # will always return an empty peer list to preserve bandwidth
