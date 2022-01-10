@@ -9,7 +9,7 @@ pub mod params;
 pub mod query;
 pub use error::Error;
 mod announce;
-mod extensions;
+pub mod extensions;
 
 /// This is a hard-coded maximum value for the number of peers that can be
 /// returned in an ANNOUNCE response.

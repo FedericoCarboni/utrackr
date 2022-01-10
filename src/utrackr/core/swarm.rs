@@ -6,7 +6,7 @@ use std::{
 
 use rand::seq::IteratorRandom;
 
-use crate::core::Error;
+use crate::core::{Error, MAX_NUM_WANT};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Event {
@@ -55,6 +55,31 @@ pub struct Swarm {
     peers: BTreeMap<[u8; 20], Peer>,
 }
 
+/// Randomly sample exactly `amount` indices from `0..length`, using Floyd's
+/// combination algorithm.
+///
+/// The output values are fully shuffled. (Overhead is under 50%.)
+///
+/// This implementation uses `O(amount)` memory and `O(amount^2)` time.
+fn sample_floyd<R>(rng: &mut impl rand::Rng, amount: u32) -> [u32; MAX_NUM_WANT] {
+    let mut indices = [0; MAX_NUM_WANT];
+    let mut i = 0;
+    for j in 0..amount {
+        let t = rng.gen_range(0..=j);
+        if indices.contains(&t) {
+            indices[i] = j;
+        } else {
+            indices[i] = t;
+        }
+    }
+    // Reimplement SliceRandom::shuffle with smaller indices
+    for i in (1..amount).rev() {
+        // invariant: elements with index > i have been locked in place.
+        indices.swap(i as usize, rng.gen_range(0..=i) as usize);
+    }
+    return indices;
+}
+
 impl Swarm {
     #[inline]
     pub fn complete(&self) -> i32 {
@@ -68,17 +93,9 @@ impl Swarm {
     pub fn downloaded(&self) -> i32 {
         self.downloaded
     }
-    pub fn validate(&self, announce: &Announce) -> Result<(), Error> {
-        if let Some(peer) = self.peers.get(&announce.peer_id) {
-            // BitTorrent clients should use the key parameter to prove their
-            // identity should their ip address
-            if peer.addr.ip() != announce.addr.ip()
-                && (peer.key != announce.key || peer.key.is_none())
-            {
-                return Err(Error::IpAddressChanged);
-            }
-        }
-        Ok(())
+    #[inline]
+    pub fn peers(&self) -> &BTreeMap<[u8; 20], Peer> {
+        &self.peers
     }
     #[inline]
     pub fn is_empty(&self) -> bool {

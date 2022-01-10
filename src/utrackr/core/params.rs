@@ -13,7 +13,7 @@ use super::{Error, Event, announce::AnnounceParams};
 ///
 /// The query parser will call `next` until there are no more key-value pairs to
 /// parse, then it will call `try_into` to extract the parsed result.
-pub trait ParseParamsExt<T>: TryInto<T, Error = Error> {
+pub trait ParamsParser<T>: TryInto<T, Error = Error> {
     /// Receives the next key-value pair in the query parameters.
     ///
     /// **NOTE: key and value may contain binary data, do not expect them to be
@@ -23,13 +23,13 @@ pub trait ParseParamsExt<T>: TryInto<T, Error = Error> {
 
 /// A no op query parameter parser extension. Used to signal that a parameter
 /// parser extension allows chaining.
-/// 
+///
 /// The query parameters will be parsed anyway to verify their validity, but
 /// they will not be deserialized.
 #[derive(Debug, Clone, Copy)]
-pub struct EmptyParseParamsExt;
+pub struct EmptyParamsParser;
 
-impl TryInto<()> for EmptyParseParamsExt {
+impl TryInto<()> for EmptyParamsParser {
     type Error = Error;
 
     #[inline]
@@ -38,7 +38,7 @@ impl TryInto<()> for EmptyParseParamsExt {
     }
 }
 
-impl ParseParamsExt<()> for EmptyParseParamsExt {
+impl ParamsParser<()> for EmptyParamsParser {
     #[inline]
     fn parse(&mut self, _: &[u8], _: &[u8]) -> Result<(), Error> {
         Ok(())
@@ -53,18 +53,19 @@ fn parse<F: FromStr>(v: &[u8]) -> Result<F, ()> {
 #[derive(Debug)]
 pub struct ParseAnnounceParams<T, P>
 where
-    P: ParseParamsExt<T>,
+    P: ParamsParser<T>,
 {
     info_hash: Option<[u8; 20]>,
     peer_id: Option<[u8; 20]>,
     port: u16,
+    remote_ip: IpAddr,
+    unsafe_ip: Option<IpAddr>,
     uploaded: Option<i64>,
     downloaded: Option<i64>,
     left: Option<i64>,
     event: Option<Event>,
     num_want: Option<i32>,
     key: Option<u32>,
-    ip: Option<IpAddr>,
     // support for tracker id should be considered
     // tracker_id: Option<[u8; ]>,
     /// Allow support for a chain of extensions
@@ -73,28 +74,29 @@ where
     _marker: PhantomData<*const T>,
 }
 
-impl<T, P: ParseParamsExt<T>> ParseAnnounceParams<T, P> {
+impl<T, P: ParamsParser<T>> ParseAnnounceParams<T, P> {
     #[inline]
-    pub fn with_extension(extension: P) -> Self {
+    pub fn with_extension(remote_ip:IpAddr, extension: P) -> Self {
         ParseAnnounceParams {
             extension,
             info_hash: None,
             peer_id: None,
             port: 0,
+            remote_ip,
+            unsafe_ip: None,
             uploaded: None,
             downloaded: None,
             left: None,
             event: None,
             num_want: None,
             key: None,
-            ip: None,
             // trackerid: Option<[u8; ]>,
             _marker: PhantomData,
         }
     }
 }
 
-impl<T, P: ParseParamsExt<T>> TryInto<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
+impl<T, P: ParamsParser<T>> TryInto<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
     type Error = Error;
 
     #[inline]
@@ -107,13 +109,14 @@ impl<T, P: ParseParamsExt<T>> TryInto<AnnounceParams<T>> for ParseAnnounceParams
                 info_hash,
                 peer_id,
                 port: self.port,
+                remote_ip: self.remote_ip,
+                unsafe_ip: self.unsafe_ip,
                 uploaded: self.uploaded.unwrap_or(0),
                 downloaded: self.downloaded.unwrap_or(0),
                 left: self.left.unwrap_or(i64::MAX),
                 event: self.event.unwrap_or(Event::None),
                 num_want: self.num_want.unwrap_or(-1),
                 key: self.key,
-                ip: self.ip,
                 extension: self.extension.try_into()?,
             }),
             (None, _) => Err(Error::InvalidInfoHash),
@@ -122,7 +125,7 @@ impl<T, P: ParseParamsExt<T>> TryInto<AnnounceParams<T>> for ParseAnnounceParams
     }
 }
 
-impl<T, P: ParseParamsExt<T>> ParseParamsExt<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
+impl<T, P: ParamsParser<T>> ParamsParser<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
     fn parse(&mut self, key: &[u8], value: &[u8]) -> Result<(), Error> {
         match key {
             b"info_hash" => {
@@ -177,10 +180,10 @@ impl<T, P: ParseParamsExt<T>> ParseParamsExt<AnnounceParams<T>> for ParseAnnounc
                 });
             }
             b"ip" => {
-                if self.ip.is_some() {
+                if self.unsafe_ip.is_some() {
                     return Err(Error::InvalidParams);
                 }
-                self.ip = Some(parse(value).map_err(|_| Error::InvalidParams)?);
+                self.unsafe_ip = Some(parse(value).map_err(|_| Error::InvalidParams)?);
             }
             b"numwant" => {
                 if self.num_want.is_some() {

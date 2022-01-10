@@ -1,19 +1,22 @@
+use std::{pin::Pin, future::{Future, ready}};
+
 use crate::core::{
     announce::AnnounceParams,
-    params::{EmptyParseParamsExt, ParseParamsExt},
+    params::{EmptyParamsParser, ParamsParser},
     swarm::Peer,
     Error,
 };
 
-pub trait TrackerExt<Q = (), P = EmptyParseParamsExt>
+/// An extension for the tracker.
+pub trait TrackerExtension<Config = (), Params = (), P = EmptyParamsParser>
 where
-    P: ParseParamsExt<Q>,
+    P: ParamsParser<Params>,
 {
-    /// Get a parameter parser extension
-    fn params(&self) -> P;
+    /// Create a new parameters parser
+    fn get_params_parser(&self) -> P;
     /// Validate an announce request
     #[inline]
-    fn validate(&self, _: &AnnounceParams<Q>, _: Option<&Peer>) -> Result<(), Error> {
+    fn validate(&self, _: &AnnounceParams<Params>, _: Option<&Peer>) -> Result<(), Error> {
         Ok(())
     }
 }

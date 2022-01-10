@@ -4,6 +4,7 @@ use std::{fmt, error};
 pub enum Error {
     AccessDenied,
     InvalidInfoHash,
+    InvalidIpAddress,
     InvalidPeerId,
     InvalidPort,
     InvalidParams,
@@ -21,11 +22,12 @@ impl Error {
         match self {
             Error::AccessDenied => "access denied",
             Error::InvalidInfoHash => "invalid info hash",
+            Error::InvalidIpAddress => "invalid IP address",
             Error::InvalidParams => "invalid parameters",
             Error::InvalidPeerId => "invalid peer id",
             Error::InvalidPort => "invalid port",
             Error::Internal => "internal server error",
-            Error::IpAddressChanged => "ip address changed",
+            Error::IpAddressChanged => "IP address changed",
             Error::TorrentNotFound => "torrent not found",
             Error::Custom(message) => message,
         }

@@ -95,77 +95,99 @@ impl Serialize for BindAddrs {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct TrackerConfig {
-    /// Whether the tracker should accept announce requests for unknown torrents
-    #[serde(default)]
-    pub announce_unknown_torrents: bool,
+fn default_interval() -> i32 {
+    900
+}
+fn default_min_interval() -> i32 {
+    60
+}
+fn default_max_interval() -> i32 {
+    1800
+}
+fn default_default_num_want() -> i32 {
+    32
+}
+fn default_max_num_want() -> i32 {
+    128
+}
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TrackerConfig<T: Default> {
     /// How often clients should announce themselves
-    #[serde(default = "TrackerConfig::default_interval")]
+    #[serde(default = "default_interval")]
     pub interval: i32,
     /// How long clients should be forced to wait before announcing again
-    #[serde(default = "TrackerConfig::default_min_interval")]
+    #[serde(default = "default_min_interval")]
     pub min_interval: i32,
     /// How long the tracker should wait before removing a peer from the swarm,
     /// defaults to 1800
-    #[serde(default = "TrackerConfig::default_max_interval")]
+    #[serde(default = "default_max_interval")]
     pub max_interval: i32,
 
-    /// Default number of peers for each announce request, defaults to 32
-    #[serde(default = "TrackerConfig::default_default_num_want")]
+    /// Default number of peers for each announce request, defaults to `32`
+    #[serde(default = "default_default_num_want")]
     pub default_num_want: i32,
-    /// Maximum number of peers that will be put in peers, defaults to 128
-    #[serde(default = "TrackerConfig::default_max_num_want")]
+    /// Maximum number of peers that will be put in peers, defaults to `128`
+    #[serde(default = "default_max_num_want")]
     pub max_num_want: i32,
 
-    /// Whether to honor the `ip` announce parameter, defaults to false.
-    /// When this option is enabled the tracker will not be able to verify that
-    /// IP addresses are correct.
+    /// Whether the tracker should accept announce requests for unknown torrents
     #[serde(default)]
-    pub unsafe_honor_ip_param: bool,
-    /// Wheather the tracker should use the ip parameter for announce requests
-    /// coming from local ip addresses.
+    pub track_unknown_torrents: bool,
+
+    /// **Always** trust the self-declared IP address of the peer. This is not a
+    /// good idea; there are all sorts of ways this could create problems, an
+    /// attacker could announce a victim's IP address to launch a DDOS attack
+    /// for example.
+    ///
+    /// **Note:** the tracker doesn't support DNS names in the IP parameter, it
+    /// will only parse valid IPv4 and IPv6 strings.
+    ///
+    /// This option is **not** recommended for most use cases, but it may be
+    /// useful for debugging.
+    ///
+    /// **Enable this option at your own risk.**
     #[serde(default)]
-    pub honor_ip_param_if_local: bool,
-    // #[serde(default)]
-    // pub ed25519: Option<u8>,
+    pub unsafe_trust_ip_param: bool,
+
+    /// Trust the self-declared IP address of the peer if the request came from
+    /// a local address.
+    ///
+    /// **Note:** the tracker doesn't support DNS names in the IP parameter, it
+    /// will only parse valid IPv4 and IPv6 strings.
+    ///
+    /// **Note:** The `ip` parameter of UDP announces doesn't support IPv6.
+    ///
+    /// The technical definition of *local* depends on the IP protocol used.
+    ///
+    /// On IPv4 the IP parameter will be trusted if the request came from an
+    /// RFC 1918 private address.
+    ///
+    /// On IPv6 the IP parameter will be trusted if the request came from an
+    /// RFC 4193 unique local address.
+    #[serde(default)]
+    pub trust_ip_param_if_local: bool,
+
+    #[serde(flatten)]
+    pub extensions: T,
 }
 
-impl Default for TrackerConfig {
+impl<T: Default> Default for TrackerConfig<T> {
     fn default() -> Self {
         Self {
-            announce_unknown_torrents: false,
+            interval: default_interval(),
+            min_interval: default_min_interval(),
+            max_interval: default_max_interval(),
 
-            interval: TrackerConfig::default_interval(),
-            min_interval: TrackerConfig::default_min_interval(),
-            max_interval: TrackerConfig::default_max_interval(),
+            default_num_want: default_default_num_want(),
+            max_num_want: default_max_num_want(),
 
-            default_num_want: TrackerConfig::default_default_num_want(),
-            max_num_want: TrackerConfig::default_max_num_want(),
+            track_unknown_torrents: false,
+            unsafe_trust_ip_param: false,
+            trust_ip_param_if_local: false,
 
-            unsafe_honor_ip_param: false,
-            honor_ip_param_if_local: false,
-            // ed25519: None,
+            extensions: T::default(),
         }
-    }
-}
-
-impl TrackerConfig {
-    fn default_interval() -> i32 {
-        900
-    }
-    fn default_min_interval() -> i32 {
-        60
-    }
-    fn default_max_interval() -> i32 {
-        1800
-    }
-    fn default_default_num_want() -> i32 {
-        32
-    }
-    fn default_max_num_want() -> i32 {
-        128
     }
 }
 
@@ -209,14 +231,12 @@ pub struct UdpConfig {
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub struct DatabaseConfig {
-
-}
+pub struct DatabaseConfig {}
 
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub struct Config {
+pub struct Config<T: Default> {
     #[serde(default)]
-    pub tracker: TrackerConfig,
+    pub tracker: TrackerConfig<T>,
     // #[serde(default)]
     // pub http: HttpConfig,
     #[serde(default)]

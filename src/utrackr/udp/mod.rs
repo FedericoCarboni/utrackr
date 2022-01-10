@@ -11,19 +11,33 @@ use std::{
 use rand::random;
 use tokio::net::UdpSocket;
 
-use crate::core::{Tracker, UdpConfig};
+use crate::core::{
+    extensions::TrackerExtension,
+    params::{EmptyParamsParser, ParamsParser},
+    Tracker, UdpConfig,
+};
 use crate::udp::protocol::{Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE};
 
-mod protocol;
 mod extensions;
+mod protocol;
 
-pub struct UdpTracker {
+pub struct UdpTracker<Extension, Config = (), Params = (), P = EmptyParamsParser>
+where
+    Extension: TrackerExtension<Config, Params, P>,
+    Config: Default,
+    P: ParamsParser<Params>,
+{
+    tracker: Arc<Tracker<Extension, Config, Params, P>>,
     socket: Arc<UdpSocket>,
     secret: Secret,
-    tracker: Tracker,
 }
 
-impl UdpTracker {
+impl<Extension, Config, Params, P> UdpTracker<Extension, Config, Params, P>
+where
+    Extension: TrackerExtension<Config, Params, P>,
+    Config: Default,
+    P: ParamsParser<Params>,
+{
     pub async fn bind(tracker: Tracker, config: UdpConfig) -> io::Result<Self> {
         let socket = UdpSocket::bind(config.bind.addrs()).await?;
         let addr = socket.local_addr()?;

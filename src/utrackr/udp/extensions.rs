@@ -2,7 +2,7 @@
 //!
 
 use crate::core::{
-    params::ParseParamsExt,
+    params::ParamsParser,
     query::{decode_percent_byte, QueryParser},
     Error,
 };
@@ -96,7 +96,7 @@ fn starts_with_announce<'a>(iter: &mut (impl Iterator<Item = &'a u8> + Clone)) -
 #[inline]
 pub fn parse_request<T, P>(mut parser: P, packet: &[u8]) -> Result<T, Error>
 where
-    P: ParseParamsExt<T>,
+    P: ParamsParser<T>,
 {
     let options_iter = OptionsIter { offset: 0, packet };
     let mut iter = options_iter.flat_map(|OptionType::UrlData(v)| v.iter());
