@@ -104,9 +104,8 @@ where
         return Err(Error::InvalidParams);
     }
     let mut query_parser = QueryParser::new(iter);
-    while let Some(result) = query_parser.next() {
-        let (key, value) = result?;
+    while let Some((key, value)) = query_parser.next() {
         parser.parse(key, value)?;
     }
-    Ok(parser.try_into()?)
+    parser.try_into()
 }

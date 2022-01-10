@@ -100,15 +100,6 @@ pub struct TrackerConfig {
     /// Whether the tracker should accept announce requests for unknown torrents
     #[serde(default)]
     pub announce_unknown_torrents: bool,
-    /// Whether the tracker should insert unknown torrents to the database.
-    /// This does nothing if no database is enabled.
-    #[cfg(feature = "database")]
-    #[serde(default)]
-    pub insert_unknown_torrents: bool,
-
-    /// Database save interval, in seconds
-    #[cfg(feature = "database")]
-    pub autosave_interval: u64,
 
     /// How often clients should announce themselves
     #[serde(default = "TrackerConfig::default_interval")]
@@ -117,7 +108,7 @@ pub struct TrackerConfig {
     #[serde(default = "TrackerConfig::default_min_interval")]
     pub min_interval: i32,
     /// How long the tracker should wait before removing a peer from the swarm,
-    /// defaults to 2x interval
+    /// defaults to 1800
     #[serde(default = "TrackerConfig::default_max_interval")]
     pub max_interval: i32,
 
@@ -129,31 +120,33 @@ pub struct TrackerConfig {
     pub max_num_want: i32,
 
     /// Whether to honor the `ip` announce parameter, defaults to false.
-    /// This option is VERY unsafe, make sure that you prevent ip spoofing somehow.
+    /// When this option is enabled the tracker will not be able to verify that
+    /// IP addresses are correct.
     #[serde(default)]
     pub unsafe_honor_ip_param: bool,
+    /// Wheather the tracker should use the ip parameter for announce requests
+    /// coming from local ip addresses.
+    #[serde(default)]
+    pub honor_ip_param_if_local: bool,
     // #[serde(default)]
-    // pub honor_ip_param_if_local: bool,
+    // pub ed25519: Option<u8>,
 }
 
 impl Default for TrackerConfig {
     fn default() -> Self {
         Self {
             announce_unknown_torrents: false,
-            #[cfg(feature = "database")]
-            insert_unknown_torrents: true,
-            
-            #[cfg(feature = "database")]
-            autosave_interval: 60,
 
-            interval: 900,
-            min_interval: 450,
-            max_interval: 1800,
+            interval: TrackerConfig::default_interval(),
+            min_interval: TrackerConfig::default_min_interval(),
+            max_interval: TrackerConfig::default_max_interval(),
 
-            default_num_want: 32,
-            max_num_want: 128,
+            default_num_want: TrackerConfig::default_default_num_want(),
+            max_num_want: TrackerConfig::default_max_num_want(),
 
             unsafe_honor_ip_param: false,
+            honor_ip_param_if_local: false,
+            // ed25519: None,
         }
     }
 }
@@ -163,7 +156,7 @@ impl TrackerConfig {
         900
     }
     fn default_min_interval() -> i32 {
-        450
+        60
     }
     fn default_max_interval() -> i32 {
         1800
@@ -176,52 +169,33 @@ impl TrackerConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct HttpConfig {
     /// Enable or disable the HTTP tracker
-    #[serde(default = "default_false")]
+    #[serde(default)]
     pub disable: bool,
     #[serde(default)]
     pub bind: BindAddrs,
     /// Enable or disable compact HTTP peer list, defaults to true
-    #[serde(default = "default_true")]
-    pub compact: bool,
-    /// Enable BEP 0007 compact IPv6 peer list, defaults to true
-    #[serde(default = "default_true")]
-    pub compact_peers6: bool,
+    #[serde(default)]
+    pub disable_compact_peers: bool,
+    /// Enable BEP 07 compact IPv6 peer list, defaults to true
+    #[serde(default)]
+    pub disable_compact_peers6: bool,
     /// Disallow clients from making requests with compact=0, defaults to false
-    #[serde(default = "default_false")]
+    #[serde(default)]
     pub compact_only: bool,
-    /// Disallow compact=0 requests unless IPv6, defaults to false
-    #[serde(default = "default_false")]
+    /// Disallow compact=0 requests unless IPv6, incompatible with `compact_only`.
+    #[serde(default)]
     pub compact_only_except_ipv6: bool,
+    #[serde(default)]
+    pub include_peer_id: bool,
 
     /// Whether to compress responses with GZIP
-    #[serde(default = "default_true")]
-    pub gzip: bool,
-}
-
-#[inline(always)]
-fn default_true() -> bool {
-    true
-}
-#[inline(always)]
-fn default_false() -> bool {
-    false
-}
-
-impl Default for HttpConfig {
-    fn default() -> Self {
-        Self {
-            disable: false,
-            bind: BindAddrs::default(),
-            compact: true,
-            compact_peers6: true,
-            compact_only: false,
-            compact_only_except_ipv6: false,
-            gzip: true,
-        }
-    }
+    #[serde(default)]
+    pub disable_gzip: bool,
+    #[serde(default)]
+    pub disable_bzip2: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]

@@ -23,6 +23,9 @@ pub trait ParseParamsExt<T>: TryInto<T, Error = Error> {
 
 /// A no op query parameter parser extension. Used to signal that a parameter
 /// parser extension allows chaining.
+/// 
+/// The query parameters will be parsed anyway to verify their validity, but
+/// they will not be deserialized.
 pub struct EmptyParseParamsExt;
 
 impl TryInto<()> for EmptyParseParamsExt {

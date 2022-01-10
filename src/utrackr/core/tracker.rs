@@ -135,6 +135,8 @@ impl Tracker {
         if let Some(ip) = announce.ip_param {
             if self.inner.config.unsafe_honor_ip_param {
                 announce.addr = SocketAddr::new(ip, announce.addr.port());
+            } else if self.inner.config.honor_ip_param_if_local {
+
             }
         }
         self.inner.announce(announce).await

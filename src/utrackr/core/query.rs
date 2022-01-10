@@ -1,5 +1,16 @@
 use crate::core::Error;
 
+/// A low-level query parameter parser. We cannot use the `form_urlencoded` crate
+/// because it requires query parameters to be valid UTF-8; the BitTorrent Tracker
+/// specification requires binary data to be in urlencoded form so the parser would
+/// choke on valid input.
+///
+/// This parser doesn't allocate anything, everything is stored on the stack.
+/// However this introduces a few limitations: keys are limited to 32 bytes, and
+/// values to 256 (in decoded form). Extra bytes will be cut off. These limits are not stable across minor
+/// versions changes.
+/// 
+/// To turn a query string into a deserialized structure use a `ParseParamsExt`.
 pub(crate) struct QueryParser<'a, I: Iterator<Item = &'a u8> + Clone> {
     key: [u8; 32],
     value: [u8; 256],
@@ -7,6 +18,7 @@ pub(crate) struct QueryParser<'a, I: Iterator<Item = &'a u8> + Clone> {
 }
 
 impl<'a, I: Iterator<Item = &'a u8> + Clone> QueryParser<'a, I> {
+    #[inline]
     pub fn new(input: I) -> Self {
         Self {
             key: [0; 32],
@@ -15,7 +27,7 @@ impl<'a, I: Iterator<Item = &'a u8> + Clone> QueryParser<'a, I> {
         }
     }
     #[inline]
-    pub fn next(&mut self) -> Option<Result<(&[u8], &[u8]), Error>> {
+    pub fn next(&mut self) -> Option<(&[u8], &[u8])> {
         let mut broken = false;
         let mut key_size = 0;
         while let Some(&b) = self.input.next() {
@@ -27,12 +39,12 @@ impl<'a, I: Iterator<Item = &'a u8> + Clone> QueryParser<'a, I> {
                     break;
                 }
                 b'&' => {
-                    return Some(Ok((&self.key[..key_size], &[])));
+                    return Some((&self.key[..key_size], &[]));
                 }
                 b => b,
             };
             if key_size >= self.key.len() {
-                return Some(Err(Error::InvalidParams));
+                continue;
             }
             self.key[key_size] = b;
             key_size += 1;
@@ -49,12 +61,12 @@ impl<'a, I: Iterator<Item = &'a u8> + Clone> QueryParser<'a, I> {
                 b => b,
             };
             if value_size >= self.value.len() {
-                return Some(Err(Error::InvalidParams));
+                continue;
             }
             self.value[value_size] = b;
             value_size += 1;
         }
-        Some(Ok((&self.key[..key_size], &self.value[..value_size])))
+        Some((&self.key[..key_size], &self.value[..value_size]))
     }
 }
 
@@ -88,9 +100,9 @@ mod tests {
     #[test]
     fn test_query_parser() {
         let mut parser = QueryParser::new(
-            b"=a+value+without+a+key&a+key+without+a+value&%20%30escapes%40=values".iter(),
+            b"=a+value+%without+a+key&a+key+without+a+value&i%20love%20escapes%%41%41%43=%values%20love%20escapes%20too%".iter(),
         );
-        while let Some(Ok((key, value))) = parser.next() {
+        while let Some((key, value)) = parser.next() {
             println!(
                 "{:?} = {:?}",
                 std::str::from_utf8(key).unwrap(),
