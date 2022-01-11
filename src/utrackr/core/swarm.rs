@@ -1,12 +1,12 @@
 use std::{
     collections::BTreeMap,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr},
     time::{Duration, Instant},
 };
 
 use rand::seq::IteratorRandom;
 
-use crate::core::{Error, MAX_NUM_WANT};
+use crate::core::{Error, announce::AnnounceParams, MAX_NUM_WANT};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Event {
@@ -14,26 +14,7 @@ pub enum Event {
     Completed,
     Started,
     Stopped,
-    Paused,
-}
-
-#[derive(Debug, Clone)]
-pub struct Announce {
-    pub info_hash: [u8; 20],
-    pub peer_id: [u8; 20],
-    pub downloaded: i64,
-    pub uploaded: i64,
-    pub left: i64,
-    #[cfg(feature = "announce-corrupt-redudant")]
-    pub corrupt: i64,
-    #[cfg(feature = "announce-corrupt-redudant")]
-    pub redudant: i64,
-    pub event: Event,
-    pub addr: SocketAddr,
-    pub ip_param: Option<IpAddr>,
-    pub key: Option<u32>,
-    pub num_want: i32,
-    pub instant: Instant,
+    // Paused,
 }
 
 #[derive(Debug)]
@@ -41,9 +22,21 @@ pub struct Peer {
     pub downloaded: i64,
     pub uploaded: i64,
     pub left: i64,
-    pub addr: SocketAddr,
+    pub port: u16,
+    pub ip: IpAddr,
     pub key: Option<u32>,
-    pub announce: Instant,
+    pub announced: u64,
+}
+
+impl Peer {
+    #[inline]
+    pub fn is_seeder(&self) -> bool {
+        self.left == 0
+    }
+    #[inline]
+    pub fn is_leecher(&self) -> bool {
+        !self.is_seeder()
+    }
 }
 
 /// In-Memory store of a peer swarm
@@ -95,31 +88,34 @@ impl Swarm {
     }
     #[inline]
     pub fn peers(&self) -> &BTreeMap<[u8; 20], Peer> {
-        &self.peers
+        &self.peers   
     }
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
-    pub fn select(&self, announce: &Announce) -> Vec<([u8; 20], SocketAddr)> {
+    pub fn select(&self, peer_id: &[u8; 20], ip: &IpAddr, seeding: bool, amount: usize) -> Vec<(&[u8; 20], &IpAddr, u16)> {
         self.peers
             .iter()
-            // don't announce peers to themselves or announce seeders to other seeders
-            .filter(|(&id, peer)| {
-                id != announce.peer_id
-                    && (peer.left != 0 || announce.left != 0)
-                    && (announce.addr.is_ipv6() || peer.addr.is_ipv4())
+            .filter(|(id, peer)| {
+                // don't announce peers to themselves
+                *id != peer_id
+                    // don't announce seeders to other seeders
+                    && (peer.left != 0 || !seeding)
+                    // don't announce IPv6 peers to IPv4 peers, but allow IPv4
+                    // addresses in IPv6 announces.
+                    && (ip.is_ipv6() || peer.ip.is_ipv4())
             })
-            .map(|(&id, peer)| (id, peer.addr))
-            .choose_multiple(&mut rand::thread_rng(), announce.num_want as usize)
+            .map(|(id, peer)| (id, &peer.ip, peer.port))
+            .choose_multiple(&mut rand::thread_rng(), amount)
     }
-    pub fn announce(&mut self, announce: &Announce) {
-        match announce.event {
+    pub fn announce<T>(&mut self, params: &AnnounceParams<T>, ip: IpAddr) {
+        match params.event() {
             Event::Completed => {
                 self.downloaded += 1;
             }
-            Event::Stopped | Event::Paused => {
-                if let Some(peer) = self.peers.remove(&announce.peer_id) {
+            Event::Stopped => {
+                if let Some(peer) = self.peers.remove(params.peer_id()) {
                     if peer.left == 0 {
                         self.complete -= 1;
                     } else {
@@ -130,35 +126,37 @@ impl Swarm {
             }
             _ => {}
         }
-        if let Some(peer) = self.peers.get_mut(&announce.peer_id) {
-            peer.downloaded = announce.downloaded;
-            peer.uploaded = announce.uploaded;
-            peer.left = announce.left;
-            peer.addr = announce.addr;
-            peer.key = announce.key;
-            peer.announce = announce.instant;
+        if let Some(peer) = self.peers.get_mut(params.peer_id()) {
+            peer.downloaded = params.downloaded();
+            peer.uploaded = params.uploaded();
+            peer.left = params.left();
+            peer.ip = ip;
+            peer.port = params.port();
+            peer.key = params.key();
+            // peer.announced = Instant::now();
         } else {
-            if announce.left == 0 {
+            if params.left == 0 {
                 self.complete += 1;
             } else {
                 self.incomplete += 1;
             }
             self.peers.insert(
-                announce.peer_id,
+                *params.peer_id(),
                 Peer {
-                    downloaded: announce.downloaded,
-                    uploaded: announce.uploaded,
-                    left: announce.left,
-                    addr: announce.addr,
-                    key: announce.key,
-                    announce: announce.instant,
+                    downloaded: params.downloaded(),
+                    uploaded: params.uploaded(),
+                    left: params.left(),
+                    ip,
+                    port: params.port(),
+                    key: params.key(),
+                    announced: 0,
                 },
             );
         }
     }
-    pub(crate) fn evict(&mut self, now: Instant, threshold: Duration) {
+    pub(crate) fn evict(&mut self, now: u64, threshold: u64) {
         self.peers.retain(|_, peer| {
-            let is_not_expired = now - peer.announce < threshold;
+            let is_not_expired = now - peer.announced < threshold;
             if !is_not_expired {
                 if peer.left == 0 {
                     self.complete -= 1;

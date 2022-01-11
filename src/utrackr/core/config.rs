@@ -113,14 +113,16 @@ fn default_max_num_want() -> i32 {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TrackerConfig<T: Default> {
-    /// How often clients should announce themselves
+    /// Duration, in seconds that the clients should wait for before announcing
+    /// again.
     #[serde(default = "default_interval")]
     pub interval: i32,
-    /// How long clients should be forced to wait before announcing again
+    /// Duration, in seconds that the clients should wait for before asking for
+    /// more peers. Announces will still be allowed, but an empty peer list will
+    /// be returned.
     #[serde(default = "default_min_interval")]
     pub min_interval: i32,
-    /// How long the tracker should wait before removing a peer from the swarm,
-    /// defaults to 1800
+    /// Duration, in seconds that the tracker should wait for before removing peers from the swarm
     #[serde(default = "default_max_interval")]
     pub max_interval: i32,
 
@@ -131,7 +133,8 @@ pub struct TrackerConfig<T: Default> {
     #[serde(default = "default_max_num_want")]
     pub max_num_want: i32,
 
-    /// Whether the tracker should accept announce requests for unknown torrents
+    /// Track torrents that are not already in the tracker's store. This is
+    /// useful when using tracker without a database.
     #[serde(default)]
     pub track_unknown_torrents: bool,
 
@@ -168,7 +171,14 @@ pub struct TrackerConfig<T: Default> {
     #[serde(default)]
     pub trust_ip_param_if_local: bool,
 
-    #[serde(flatten)]
+    /// Deny all IP address changes. By default the tracker will allow clients
+    /// to change their IP if they specify a `key` to prove their identity. This
+    /// option will disable the default behavior and will uncoditionally reject
+    /// announce requests if the IP address of the peer doesn't match.
+    #[serde(default)]
+    pub deny_all_ip_changes: bool,
+
+    #[serde(default, flatten)]
     pub extensions: T,
 }
 
@@ -185,6 +195,7 @@ impl<T: Default> Default for TrackerConfig<T> {
             track_unknown_torrents: false,
             unsafe_trust_ip_param: false,
             trust_ip_param_if_local: false,
+            deny_all_ip_changes: false,
 
             extensions: T::default(),
         }

@@ -1,5 +1,3 @@
-use std::{pin::Pin, future::{Future, ready}};
-
 use crate::core::{
     announce::AnnounceParams,
     params::{EmptyParamsParser, ParamsParser},

@@ -18,6 +18,7 @@ use super::{
 fn is_local(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => ipv4.is_private(),
+        // is_unique_local is not stabilized yet
         IpAddr::V6(ipv6) => (ipv6.segments()[0] & 0xfe00) == 0xfc00,
     }
 }
@@ -118,11 +119,6 @@ where
             .filter(|_| self.is_trusted(params.remote_ip()))
             .unwrap_or_else(|| params.remote_ip());
 
-        // IP address should be globally routable
-        if !is_global(&ip) {
-            return Err(Error::InvalidIpAddress);
-        }
-
         let swarms = self.swarms.read().await;
 
         if let Some(swarm) = swarms.get(params.info_hash()) {
@@ -132,15 +128,27 @@ where
                 // If the peer_id is already in the swarm check that the IP or
                 // key match. Announce requests will be rejected if IP address
                 // changed and the key doesn't match or is absent.
-                if peer.addr.ip() != ip && (params.key().is_none() || peer.key != params.key()) {
+                if ip != peer.ip
+                    && (self.config.deny_all_ip_changes
+                        || params.key().is_none()
+                        || params.key() != peer.key)
+                {
                     return Err(Error::IpAddressChanged);
                 }
             }
-            // Allow extensions to run custom validation on the parameters
-            // and peer.
+            // Allow extensions to run custom validation on the parameters and
+            // peer.
             self.extension.validate(&params, peer)?;
             // Write peer counts
             w.counts(swarm.complete(), swarm.incomplete());
+        } else if self.config.track_unknown_torrents {
+            drop(swarms); // drop the read guard, we need a write one
+            let swarms = self.swarms.write().await;
+            let swarm = Swarm::default();
+            swarm.announce(&params, ip);
+            swarms.insert(*params.info_hash(), RwLock::new(swarm));
+        } else {
+            return Err(Error::TorrentNotFound);
         }
 
         Ok(())
