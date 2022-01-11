@@ -1,19 +1,16 @@
-use std::{
-    collections::BTreeMap,
-    net::{IpAddr},
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, net::IpAddr};
 
 use rand::seq::IteratorRandom;
 
-use crate::core::{Error, announce::AnnounceParams, MAX_NUM_WANT};
+use crate::core::announce::AnnounceParams;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Event {
     None,
     Completed,
     Started,
     Stopped,
+    // BEP 21
     // Paused,
 }
 
@@ -22,20 +19,17 @@ pub struct Peer {
     pub downloaded: i64,
     pub uploaded: i64,
     pub left: i64,
-    pub port: u16,
+    // interop support for IPv6/IPv4 is missing
     pub ip: IpAddr,
+    pub port: u16,
     pub key: Option<u32>,
-    pub announced: u64,
+    pub last_announce: u64,
 }
 
 impl Peer {
     #[inline]
     pub fn is_seeder(&self) -> bool {
         self.left == 0
-    }
-    #[inline]
-    pub fn is_leecher(&self) -> bool {
-        !self.is_seeder()
     }
 }
 
@@ -46,31 +40,6 @@ pub struct Swarm {
     incomplete: i32,
     downloaded: i32,
     peers: BTreeMap<[u8; 20], Peer>,
-}
-
-/// Randomly sample exactly `amount` indices from `0..length`, using Floyd's
-/// combination algorithm.
-///
-/// The output values are fully shuffled. (Overhead is under 50%.)
-///
-/// This implementation uses `O(amount)` memory and `O(amount^2)` time.
-fn sample_floyd<R>(rng: &mut impl rand::Rng, amount: u32) -> [u32; MAX_NUM_WANT] {
-    let mut indices = [0; MAX_NUM_WANT];
-    let mut i = 0;
-    for j in 0..amount {
-        let t = rng.gen_range(0..=j);
-        if indices.contains(&t) {
-            indices[i] = j;
-        } else {
-            indices[i] = t;
-        }
-    }
-    // Reimplement SliceRandom::shuffle with smaller indices
-    for i in (1..amount).rev() {
-        // invariant: elements with index > i have been locked in place.
-        indices.swap(i as usize, rng.gen_range(0..=i) as usize);
-    }
-    return indices;
 }
 
 impl Swarm {
@@ -88,35 +57,41 @@ impl Swarm {
     }
     #[inline]
     pub fn peers(&self) -> &BTreeMap<[u8; 20], Peer> {
-        &self.peers   
+        &self.peers
     }
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
-    pub fn select(&self, peer_id: &[u8; 20], ip: &IpAddr, seeding: bool, amount: usize) -> Vec<(&[u8; 20], &IpAddr, u16)> {
+    pub fn select(
+        &self,
+        peer_id: &[u8; 20],
+        ip: &IpAddr,
+        seeding: bool,
+        amount: usize,
+    ) -> Vec<(IpAddr, u16)> {
         self.peers
             .iter()
             .filter(|(id, peer)| {
                 // don't announce peers to themselves
                 *id != peer_id
                     // don't announce seeders to other seeders
-                    && (peer.left != 0 || !seeding)
+                    && (peer.is_seeder() || !seeding)
                     // don't announce IPv6 peers to IPv4 peers, but allow IPv4
                     // addresses in IPv6 announces.
                     && (ip.is_ipv6() || peer.ip.is_ipv4())
             })
-            .map(|(id, peer)| (id, &peer.ip, peer.port))
+            .map(|(_, peer)| (peer.ip, peer.port))
             .choose_multiple(&mut rand::thread_rng(), amount)
     }
-    pub fn announce<T>(&mut self, params: &AnnounceParams<T>, ip: IpAddr) {
+    pub fn announce(&mut self, params: &AnnounceParams, ip: IpAddr) {
         match params.event() {
             Event::Completed => {
                 self.downloaded += 1;
             }
             Event::Stopped => {
                 if let Some(peer) = self.peers.remove(params.peer_id()) {
-                    if peer.left == 0 {
+                    if peer.is_seeder() {
                         self.complete -= 1;
                     } else {
                         self.incomplete -= 1;
@@ -133,9 +108,9 @@ impl Swarm {
             peer.ip = ip;
             peer.port = params.port();
             peer.key = params.key();
-            // peer.announced = Instant::now();
+            peer.last_announce = params.time();
         } else {
-            if params.left == 0 {
+            if params.left() == 0 {
                 self.complete += 1;
             } else {
                 self.incomplete += 1;
@@ -149,14 +124,14 @@ impl Swarm {
                     ip,
                     port: params.port(),
                     key: params.key(),
-                    announced: 0,
+                    last_announce: params.time(),
                 },
             );
         }
     }
     pub(crate) fn evict(&mut self, now: u64, threshold: u64) {
         self.peers.retain(|_, peer| {
-            let is_not_expired = now - peer.announced < threshold;
+            let is_not_expired = now - peer.last_announce < threshold;
             if !is_not_expired {
                 if peer.left == 0 {
                     self.complete -= 1;

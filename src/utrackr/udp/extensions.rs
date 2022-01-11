@@ -1,10 +1,12 @@
 //! UDP Tracker Protocol Extensions
 //!
+use std::{marker::PhantomData, net::IpAddr};
 
 use crate::core::{
+    announce::AnnounceParams,
     params::ParamsParser,
     query::{decode_percent_byte, QueryParser},
-    Error,
+    Error, Event,
 };
 
 const OPTION_TYPE_END: u8 = 0x0;
@@ -17,20 +19,20 @@ enum OptionType<'a> {
 
 #[derive(Debug, Clone)]
 struct OptionsIter<'a> {
-    offset: usize,
+    index: usize,
     packet: &'a [u8],
 }
 
 impl<'a> OptionsIter<'a> {
     #[inline]
     fn next_u8(&mut self) -> u8 {
-        let value = self.packet[self.offset];
-        self.offset += 1;
+        let value = self.packet[self.index];
+        self.index += 1;
         value
     }
     #[inline]
     fn check(&self) -> Option<()> {
-        if self.offset + 1 >= self.packet.len() {
+        if self.index + 1 >= self.packet.len() {
             None
         } else {
             Some(())
@@ -53,8 +55,8 @@ impl<'a> Iterator for OptionsIter<'a> {
             }
             self.check()?;
             let len = len as usize;
-            let slice = &self.packet[self.offset..self.offset + len];
-            self.offset += len;
+            let slice = &self.packet[self.index..self.index + len];
+            self.index += len;
             if option_type == OPTION_TYPE_URLDATA {
                 return Some(OptionType::UrlData(slice));
             }
@@ -90,6 +92,11 @@ fn starts_with_announce<'a>(iter: &mut (impl Iterator<Item = &'a u8> + Clone)) -
             return false;
         }
     }
+    if let Some(&b) = iter.next() {
+        if b != b'?' {
+            return false;
+        }
+    }
     true
 }
 
@@ -98,7 +105,7 @@ pub fn parse_request<T, P>(mut parser: P, packet: &[u8]) -> Result<T, Error>
 where
     P: ParamsParser<T>,
 {
-    let options_iter = OptionsIter { offset: 0, packet };
+    let options_iter = OptionsIter { index: 0, packet };
     let mut iter = options_iter.flat_map(|OptionType::UrlData(v)| v.iter());
     if !starts_with_announce(&mut iter) {
         return Err(Error::InvalidParams);

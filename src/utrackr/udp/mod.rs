@@ -12,7 +12,7 @@ use rand::random;
 use tokio::net::UdpSocket;
 
 use crate::core::{
-    extensions::TrackerExtension,
+    extensions::{TrackerExtension, NoExtension},
     params::{EmptyParamsParser, ParamsParser},
     Tracker, UdpConfig,
 };
@@ -21,11 +21,12 @@ use crate::udp::protocol::{Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE
 mod extensions;
 mod protocol;
 
-pub struct UdpTracker<Extension, Config = (), Params = (), P = EmptyParamsParser>
+pub struct UdpTracker<Extension = NoExtension, Config = (), Params = (), P = EmptyParamsParser>
 where
-    Extension: TrackerExtension<Config, Params, P>,
-    Config: Default,
-    P: ParamsParser<Params>,
+    Extension: TrackerExtension<Config, Params, P> + Sync + Send,
+    Config: Default + Sync + Send,
+    Params: Sync + Send,
+    P: ParamsParser<Params> + Sync + Send,
 {
     tracker: Arc<Tracker<Extension, Config, Params, P>>,
     socket: Arc<UdpSocket>,
@@ -34,11 +35,15 @@ where
 
 impl<Extension, Config, Params, P> UdpTracker<Extension, Config, Params, P>
 where
-    Extension: TrackerExtension<Config, Params, P>,
-    Config: Default,
-    P: ParamsParser<Params>,
+    Extension: 'static + TrackerExtension<Config, Params, P> + Sync + Send,
+    Config: 'static + Default + Sync + Send,
+    Params: 'static + Sync + Send,
+    P: 'static + ParamsParser<Params> + Sync + Send,
 {
-    pub async fn bind(tracker: Tracker, config: UdpConfig) -> io::Result<Self> {
+    pub async fn bind(
+        tracker: Arc<Tracker<Extension, Config, Params, P>>,
+        config: UdpConfig,
+    ) -> io::Result<Self> {
         let socket = UdpSocket::bind(config.bind.addrs()).await?;
         let addr = socket.local_addr()?;
         log::info!("udp tracker bound to {:?}", addr);
@@ -68,26 +73,31 @@ where
                         continue;
                     }
                     log::trace!("received packet of length {}", packet_len);
-                    let transaction = Transaction {
-                        socket: Arc::clone(&self.socket),
-                        secret: self.secret,
-                        tracker: self.tracker.clone(),
-                        remote_ip: match addr.ip() {
-                            ipv4 @ IpAddr::V4(_) => ipv4,
-                            ipv6 @ IpAddr::V6(v6) => match v6.octets() {
-                                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
-                                    IpAddr::V4(Ipv4Addr::new(a, b, c, d))
-                                }
-                                _ => ipv6,
-                            },
+                    let socket = Arc::clone(&self.socket);
+                    let secret = self.secret;
+                    let tracker = Arc::clone(&self.tracker);
+                    let remote_ip = match addr.ip() {
+                        ipv4 @ IpAddr::V4(_) => ipv4,
+                        ipv6 @ IpAddr::V6(v6) => match v6.octets() {
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
+                                IpAddr::V4(Ipv4Addr::new(a, b, c, d))
+                            }
+                            _ => ipv6,
                         },
-                        packet,
-                        packet_len,
-                        addr,
-                        instant: Instant::now(),
                     };
+                    let instant = Instant::now();
                     // handle the request concurrently
                     tokio::spawn(async move {
+                        let transaction = Transaction {
+                            socket,
+                            secret,
+                            tracker,
+                            remote_ip,
+                            packet,
+                            packet_len,
+                            addr,
+                            instant,
+                        };
                         if let Err(err) = transaction.handle().await {
                             log::error!("transaction handler failed: {}", err);
                         }

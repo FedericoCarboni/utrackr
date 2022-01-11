@@ -2,11 +2,12 @@ use std::{
     marker::PhantomData,
     net::IpAddr,
     str::{self, FromStr},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use arrayref::array_ref;
 
-use super::{Error, Event, announce::AnnounceParams};
+use super::{announce::AnnounceParams, Error, Event};
 
 /// An extension to the query parameter parser. It can be used to extract custom
 /// parameters from the `?query` part of the announce URL.
@@ -53,6 +54,7 @@ fn parse<F: FromStr>(v: &[u8]) -> Result<F, ()> {
 #[derive(Debug)]
 pub struct ParseAnnounceParams<T, P>
 where
+    T: Sync + Send,
     P: ParamsParser<T>,
 {
     info_hash: Option<[u8; 20]>,
@@ -74,9 +76,9 @@ where
     _marker: PhantomData<*const T>,
 }
 
-impl<T, P: ParamsParser<T>> ParseAnnounceParams<T, P> {
+impl<T: Sync + Send, P: ParamsParser<T>> ParseAnnounceParams<T, P> {
     #[inline]
-    pub fn with_extension(remote_ip:IpAddr, extension: P) -> Self {
+    pub fn with_extension(remote_ip: IpAddr, extension: P) -> Self {
         ParseAnnounceParams {
             extension,
             info_hash: None,
@@ -96,36 +98,46 @@ impl<T, P: ParamsParser<T>> ParseAnnounceParams<T, P> {
     }
 }
 
-impl<T, P: ParamsParser<T>> TryInto<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
+impl<T: Sync + Send, P: ParamsParser<T>> TryInto<(AnnounceParams, T)>
+    for ParseAnnounceParams<T, P>
+{
     type Error = Error;
 
     #[inline]
-    fn try_into(self) -> Result<AnnounceParams<T>, Self::Error> {
+    fn try_into(self) -> Result<(AnnounceParams, T), Self::Error> {
         if self.port == 0 {
             return Err(Error::InvalidPort);
         }
         match (self.info_hash, self.peer_id) {
-            (Some(info_hash), Some(peer_id)) => Ok(AnnounceParams {
-                info_hash,
-                peer_id,
-                port: self.port,
-                remote_ip: self.remote_ip,
-                unsafe_ip: self.unsafe_ip,
-                uploaded: self.uploaded.unwrap_or(0),
-                downloaded: self.downloaded.unwrap_or(0),
-                left: self.left.unwrap_or(i64::MAX),
-                event: self.event.unwrap_or(Event::None),
-                num_want: self.num_want.unwrap_or(-1),
-                key: self.key,
-                extension: self.extension.try_into()?,
-            }),
+            (Some(info_hash), Some(peer_id)) => Ok((
+                AnnounceParams::new(
+                    info_hash,
+                    peer_id,
+                    self.port,
+                    self.remote_ip,
+                    self.unsafe_ip,
+                    self.uploaded.unwrap_or(0),
+                    self.downloaded.unwrap_or(0),
+                    self.left.unwrap_or(i64::MAX),
+                    self.event.unwrap_or(Event::None),
+                    self.num_want.unwrap_or(-1),
+                    self.key,
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("are we traveling back in time?")
+                        .as_secs(),
+                ),
+                self.extension.try_into()?,
+            )),
             (None, _) => Err(Error::InvalidInfoHash),
             (_, None) => Err(Error::InvalidPeerId),
         }
     }
 }
 
-impl<T, P: ParamsParser<T>> ParamsParser<AnnounceParams<T>> for ParseAnnounceParams<T, P> {
+impl<T: Sync + Send, P: ParamsParser<T>> ParamsParser<(AnnounceParams, T)>
+    for ParseAnnounceParams<T, P>
+{
     fn parse(&mut self, key: &[u8], value: &[u8]) -> Result<(), Error> {
         match key {
             b"info_hash" => {
@@ -175,7 +187,7 @@ impl<T, P: ParamsParser<T>> ParamsParser<AnnounceParams<T>> for ParseAnnouncePar
                     b"started" => Event::Started,
                     b"stopped" => Event::Stopped,
                     b"completed" => Event::Completed,
-                    b"paused" => Event::Paused,
+                    // b"paused" => Event::Paused,
                     _ => Event::None,
                 });
             }

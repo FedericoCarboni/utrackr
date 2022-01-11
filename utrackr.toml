@@ -11,7 +11,7 @@ default_num_want = 32
 # Maximum number of peers the tracker can return, (cannot be greater than 256)
 max_num_want = 128
 # Wheather the tracker should handle announces from torrents that are not in the database
-track_unknown_torrents = false
+track_unknown_torrents = true
 # Wheather the tracker should accept the ip parameter. Note that if this option
 # is enabled the tracker will ALWAYS assume that it is valid.
 unsafe_trust_ip_param = false
@@ -38,7 +38,7 @@ autosave = 60
 
 [udp]
 # Disables the udp protocol
-disable = false
+disable = true
 # The address to bind to, surround IPv6 addresses with square brackets
 bind = "[::]:6969"
 # By default, when bound to an IPv6 address, the tracker will serve both IPv4 and
