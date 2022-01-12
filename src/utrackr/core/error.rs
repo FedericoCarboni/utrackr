@@ -4,6 +4,8 @@ use std::{error, fmt};
 pub enum Error {
     /// The client is not allowed to access the tracker.
     AccessDenied,
+    /// The client sent an announce request to an invalid URL.
+    InvalidAnnounceUrl,
     /// The client sent an info hash not 20 bytes in length.
     InvalidInfoHash,
     /// The client sent an `ip` param, but it was malformed or invalid.
@@ -33,6 +35,7 @@ impl Error {
     pub const fn message(&self) -> &'static str {
         match self {
             Error::AccessDenied => "access denied",
+            Error::InvalidAnnounceUrl => "invalid announce URL",
             Error::InvalidInfoHash => "invalid info hash",
             Error::InvalidIpAddress => "invalid IP address",
             Error::InvalidParams => "invalid parameters",

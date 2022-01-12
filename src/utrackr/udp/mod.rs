@@ -1,5 +1,29 @@
-//! [UDP Tracker Protocol for BitTorrent](https://www.bittorrent.org/beps/bep_0015.html)
-//! This module implements the UDP Tracker Protocol as specified by BEP 15.
+//! UDP Tracker Protocol implemented according to BEP 15[^1], includes support
+//! for UDP extensions as specified by BEP 41[^2].
+//!
+//! `libtorrent-rasterbar`'s implementation of those extensions is based on
+//! Arvid Norberg's specification[^3], which is differs enough from BEP 41[^2]
+//! to make the two incompatible to some extent. Fortunately as long as the
+//! client doesn't include the authentication extension[^4] in the request, the
+//! tracker will behave as expected.
+//!
+//! ## Limitations
+//! The tracker can't read request strings (path and query components) of more
+//! than `1934` characters. Realistically path and query together should not
+//! exceed `255` as most client implementations will only send up to `255`
+//! characters[^5].
+//!
+//! BEP 41 is not widely implemented, so it may not work for all BitTorrent clients.
+//!
+//! [^1]: [BEP 15, UDP Tracker Protocol for BitTorrent](https://www.bittorrent.org/beps/bep_0015.html)
+//!
+//! [^2]: [BEP 41, UDP Tracker Protocol Extensions](https://www.bittorrent.org/beps/bep_0041.html)
+//!
+//! [^3]: [Arvid Norberg's specification for `libtorrent-rasterbar` § Extensions](https://www.libtorrent.org/udp_tracker_protocol.html#extensions)
+//!
+//! [^4]: [Arvid Norberg's specification for `libtorrent-rasterbar` § Authentication](https://www.libtorrent.org/udp_tracker_protocol.html#authentication)
+//!
+//! [^5]: [`libtorrent-rasterbar` only sends the first 255 chars of the request string](https://github.com/arvidn/libtorrent/blob/RC_2_0/src/udp_tracker_connection.cpp#L743)
 
 use std::{
     io,
@@ -22,7 +46,7 @@ mod protocol;
 
 pub struct UdpTracker<Extension = NoExtension, Config = (), Params = (), P = EmptyParamsParser>
 where
-    Extension: TrackerExtension<Config, Params, P> + Sync + Send,
+    Extension: TrackerExtension<Config, Params, P>,
     Config: Default + Sync + Send,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,

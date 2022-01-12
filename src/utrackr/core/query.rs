@@ -7,7 +7,7 @@
 /// However this introduces a few limitations: keys are limited to 32 bytes, and
 /// values to 256 (in decoded form). Extra bytes will be cut off. These limits are not stable across minor
 /// versions changes.
-/// 
+///
 /// To turn a query string into a deserialized structure use a `ParseParamsExt`.
 pub(crate) struct QueryParser<'a, I: Iterator<Item = &'a u8> + Clone> {
     key: [u8; 32],
@@ -24,7 +24,6 @@ impl<'a, I: Iterator<Item = &'a u8> + Clone> QueryParser<'a, I> {
             input,
         }
     }
-    #[inline]
     pub fn next(&mut self) -> Option<(&[u8], &[u8])> {
         let mut broken = false;
         let mut key_size = 0;

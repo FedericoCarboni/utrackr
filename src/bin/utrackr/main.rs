@@ -14,7 +14,6 @@ pub struct CustomParamsParser {
 impl TryInto<CustomParams> for CustomParamsParser {
     type Error = Error;
     fn try_into(self) -> Result<CustomParams, Self::Error> {
-        dbg!("ext");
         Ok(CustomParams {
             y: self.y.ok_or(Error::InvalidParams)?,
         })

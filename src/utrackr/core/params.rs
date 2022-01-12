@@ -17,7 +17,7 @@ use super::{announce::AnnounceParams, Error, Event};
 pub trait ParamsParser<T>: TryInto<T, Error = Error> {
     /// Receives the next key-value pair in the query parameters.
     ///
-    /// **NOTE: key and value may contain binary data, do not assume them to be
+    /// **NOTE: key and value may contain binary data, do not assume they're
     /// valid UTF-8!**
     fn parse(&mut self, key: &[u8], value: &[u8]) -> Result<(), Error>;
 }
@@ -73,7 +73,7 @@ where
     /// Allow support for a chain of extensions
     extension: P,
     // make the compiler happy
-    _marker: PhantomData<*const T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Sync + Send, P: ParamsParser<T>> ParseAnnounceParams<T, P> {

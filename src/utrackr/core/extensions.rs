@@ -6,10 +6,11 @@ use crate::core::{
 };
 
 /// An extension for the tracker.
-pub trait TrackerExtension<Config = (), Params = (), P = EmptyParamsParser>
+pub trait TrackerExtension<Config = (), Params = (), P = EmptyParamsParser>: Sync + Send
 where
+    Config: Default + Sync + Send,
     Params: Sync + Send,
-    P: ParamsParser<Params>,
+    P: ParamsParser<Params> + Sync + Send,
 {
     /// Create a new parameters parser
     fn get_params_parser(&self) -> P;

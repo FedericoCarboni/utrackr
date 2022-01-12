@@ -13,7 +13,7 @@ use crate::core::extensions::TrackerExtension;
 use crate::core::params::{EmptyParamsParser, ParamsParser};
 use crate::core::{announce::AnnounceParams, Error, Event, Tracker, MAX_NUM_WANT};
 
-use super::extensions::parse_request;
+use crate::udp::extensions::parse_extensions;
 
 /// XBT Tracker uses 2048, opentracker uses 8192, it could be tweaked for
 /// performance reasons
@@ -267,7 +267,7 @@ where
                 .unwrap()
                 .as_secs(),
         );
-        let params = parse_request(
+        let params = parse_extensions(
             self.tracker.get_params_parser(),
             &self.packet[98..self.packet_len],
         )?;

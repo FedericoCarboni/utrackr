@@ -23,7 +23,7 @@ fn is_local(ip: &IpAddr) -> bool {
 #[derive(Debug)]
 pub struct Tracker<Extension = NoExtension, Config = (), Params = (), P = EmptyParamsParser>
 where
-    Extension: TrackerExtension<Config, Params, P> + Sync + Send,
+    Extension: TrackerExtension<Config, Params, P>,
     Config: Default + Sync + Send,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
@@ -36,7 +36,7 @@ where
 
 impl<Extension, Config, Params, P> Tracker<Extension, Config, Params, P>
 where
-    Extension: TrackerExtension<Config, Params, P> + Sync + Send,
+    Extension: TrackerExtension<Config, Params, P>,
     Config: Default + Sync + Send,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
