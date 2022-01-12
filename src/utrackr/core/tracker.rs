@@ -20,39 +20,6 @@ fn is_local(ip: &IpAddr) -> bool {
     }
 }
 
-#[inline]
-fn is_global(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ipv4) => {
-            if u32::from_be_bytes(ipv4.octets()) == 0xc0000009
-                || u32::from_be_bytes(ipv4.octets()) == 0xc000000a
-            {
-                return true;
-            }
-            !ipv4.is_private()
-            && !ipv4.is_loopback()
-            && !ipv4.is_link_local()
-            && !ipv4.is_broadcast()
-            && !ipv4.is_documentation()
-            && !(ipv4.octets()[0] == 100 && (ipv4.octets()[1] & 0b1100_0000 == 0b0100_0000))
-            // addresses reserved for future protocols (`192.0.0.0/24`)
-            && !(ipv4.octets()[0] == 192 && ipv4.octets()[1] == 0 && ipv4.octets()[2] == 0)
-            && !(ipv4.octets()[0] & 240 == 240 && !ipv4.is_broadcast())
-            && !(ipv4.octets()[0] == 198 && (ipv4.octets()[1] & 0xfe) == 18)
-            // Make sure the address is not in 0.0.0.0/8
-            && ipv4.octets()[0] != 0
-        }
-        IpAddr::V6(ipv6) => {
-            !ipv6.is_multicast()
-                && !ipv6.is_loopback()
-                && !((ipv6.segments()[0] & 0xffc0) == 0xfe80)
-                && !((ipv6.segments()[0] & 0xfe00) == 0xfc00)
-                && !ipv6.is_unspecified()
-                && !((ipv6.segments()[0] == 0x2001) && (ipv6.segments()[1] == 0xdb8))
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Tracker<Extension = NoExtension, Config = (), Params = (), P = EmptyParamsParser>
 where

@@ -1,9 +1,8 @@
 use std::{
     fmt, io,
-    marker::PhantomData,
     net::{IpAddr, SocketAddr},
     sync::Arc,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use arrayref::array_ref;
@@ -111,7 +110,6 @@ where
     pub(in crate::udp) packet_len: usize,
     pub(in crate::udp) remote_ip: IpAddr,
     pub(in crate::udp) addr: SocketAddr,
-    pub(in crate::udp) instant: Instant,
 }
 
 impl<Extension, Config, Params, P> fmt::Debug for Transaction<Extension, Config, Params, P>

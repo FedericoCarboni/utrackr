@@ -5,7 +5,6 @@ use std::{
     io,
     net::{IpAddr, Ipv4Addr},
     sync::Arc,
-    time::Instant,
 };
 
 use rand::random;
@@ -85,7 +84,7 @@ where
                             _ => ipv6,
                         },
                     };
-                    let instant = Instant::now();
+                    //let instant = Instant::now();
                     // handle the request concurrently
                     tokio::spawn(async move {
                         let transaction = Transaction {
@@ -96,7 +95,6 @@ where
                             packet,
                             packet_len,
                             addr,
-                            instant,
                         };
                         if let Err(err) = transaction.handle().await {
                             log::error!("transaction handler failed: {}", err);

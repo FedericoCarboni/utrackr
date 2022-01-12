@@ -1,17 +1,29 @@
-use std::{fmt, error};
+use std::{error, fmt};
 
 /// A tracker error, it indicates a problem with a client's request.
 pub enum Error {
+    /// The client is not allowed to access the tracker.
     AccessDenied,
+    /// The client sent an info hash not 20 bytes in length.
     InvalidInfoHash,
+    /// The client sent an `ip` param, but it was malformed or invalid.
     InvalidIpAddress,
+    /// The client sent a peer ID not 20 bytes long.
     InvalidPeerId,
+    /// The client sent 0, or a system port as `port`.
     InvalidPort,
+    /// The client sent invalid or malformed parameters.
     InvalidParams,
+    /// The tracker failed to serve an announce request for an unspecified
+    /// reason
     Internal,
+    /// The IP address of the request doesn't match the previous announce, and
+    /// no `key` or a wrong one was passed as verification.
     IpAddressChanged,
+    /// The torrent was not found by tracker.
     TorrentNotFound,
-    Custom(&'static str)
+    /// A custom error for Extensions to use
+    Custom(&'static str),
 }
 
 impl Error {

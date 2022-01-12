@@ -1,12 +1,10 @@
 //! UDP Tracker Protocol Extensions
 //!
-use std::{marker::PhantomData, net::IpAddr};
 
 use crate::core::{
-    announce::AnnounceParams,
     params::ParamsParser,
     query::{decode_percent_byte, QueryParser},
-    Error, Event,
+    Error,
 };
 
 const OPTION_TYPE_END: u8 = 0x0;

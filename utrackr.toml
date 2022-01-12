@@ -38,7 +38,7 @@ autosave = 60
 
 [udp]
 # Disables the udp protocol
-disable = true
+disable = false
 # The address to bind to, surround IPv6 addresses with square brackets
 bind = "[::]:6969"
 # By default, when bound to an IPv6 address, the tracker will serve both IPv4 and

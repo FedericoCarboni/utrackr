@@ -1,5 +1,3 @@
-use crate::core::Error;
-
 /// A low-level query parameter parser. We cannot use the `form_urlencoded` crate
 /// because it requires query parameters to be valid UTF-8; the BitTorrent Tracker
 /// specification requires binary data to be in urlencoded form so the parser would
