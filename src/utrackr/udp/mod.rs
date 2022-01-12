@@ -2,7 +2,7 @@
 //! for UDP extensions as specified by BEP 41[^2].
 //!
 //! `libtorrent-rasterbar`'s implementation of those extensions is based on
-//! Arvid Norberg's specification[^3], which is differs enough from BEP 41[^2]
+//! Arvid Norberg's specification[^3], which differs enough from BEP 41[^2]
 //! to make the two incompatible to some extent. Fortunately as long as the
 //! client doesn't include the authentication extension[^4] in the request, the
 //! tracker will behave as expected.
