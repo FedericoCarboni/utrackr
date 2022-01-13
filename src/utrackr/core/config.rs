@@ -198,46 +198,12 @@ impl Default for TrackerConfig {
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub struct HttpConfig {
-  /// Enable or disable the HTTP tracker
-  #[serde(default)]
-  pub disable: bool,
-  #[serde(default)]
-  pub bind: BindAddrs,
-  /// Enable or disable compact HTTP peer list, defaults to true
-  #[serde(default)]
-  pub disable_compact_peers: bool,
-  /// Enable BEP 07 compact IPv6 peer list, defaults to true
-  #[serde(default)]
-  pub disable_compact_peers6: bool,
-  /// Disallow clients from making requests with compact=0, defaults to false
-  #[serde(default)]
-  pub compact_only: bool,
-  /// Disallow compact=0 requests unless IPv6, incompatible with `compact_only`.
-  #[serde(default)]
-  pub compact_only_except_ipv6: bool,
-  #[serde(default)]
-  pub include_peer_id: bool,
-
-  /// Whether to compress responses with GZIP
-  #[serde(default)]
-  pub disable_gzip: bool,
-  #[serde(default)]
-  pub disable_bzip2: bool,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct UdpConfig {
   #[serde(default)]
   pub disable: bool,
   #[serde(default)]
   pub bind: BindAddrs,
-  #[serde(default)]
-  pub ipv6_only: bool,
 }
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-pub struct DatabaseConfig {}
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct Config<T: Default> {
@@ -245,10 +211,6 @@ pub struct Config<T: Default> {
   pub tracker: TrackerConfig,
   #[serde(default, flatten)]
   pub extensions: T,
-  // #[serde(default)]
-  // pub http: HttpConfig,
   #[serde(default)]
   pub udp: UdpConfig,
-  #[cfg(feature = "database")]
-  pub database: DatabaseConfig,
 }
