@@ -6,9 +6,8 @@ use crate::core::{
 };
 
 /// An extension for the tracker.
-pub trait TrackerExtension<Config = (), Params = (), P = EmptyParamsParser>: Sync + Send
+pub trait TrackerExtension<Params = (), P = EmptyParamsParser>: Sync + Send
 where
-    Config: Default + Sync + Send,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
 {

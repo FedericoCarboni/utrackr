@@ -97,15 +97,14 @@ fn two_min_window() -> u64 {
         / 120
 }
 
-pub struct Transaction<Extension, Config = (), Params = (), P = EmptyParamsParser>
+pub struct Transaction<Extension, Params = (), P = EmptyParamsParser>
 where
-    Extension: TrackerExtension<Config, Params, P> + Sync + Send,
-    Config: Default + Sync + Send,
+    Extension: TrackerExtension<Params, P> + Sync + Send,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
 {
     pub(in crate::udp) socket: Arc<UdpSocket>,
-    pub(in crate::udp) tracker: Arc<Tracker<Extension, Config, Params, P>>,
+    pub(in crate::udp) tracker: Arc<Tracker<Extension, Params, P>>,
     pub(in crate::udp) secret: Secret,
     pub(in crate::udp) packet: [u8; MAX_PACKET_SIZE],
     pub(in crate::udp) packet_len: usize,
@@ -113,10 +112,9 @@ where
     pub(in crate::udp) addr: SocketAddr,
 }
 
-impl<Extension, Config, Params, P> fmt::Debug for Transaction<Extension, Config, Params, P>
+impl<Extension, Params, P> fmt::Debug for Transaction<Extension, Params, P>
 where
-    Extension: TrackerExtension<Config, Params, P> + Sync + Send,
-    Config: Default + Sync + Send,
+    Extension: TrackerExtension<Params, P> + Sync + Send,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
 {
@@ -130,10 +128,9 @@ where
     }
 }
 
-impl<Extension, Config, Params, P> Transaction<Extension, Config, Params, P>
+impl<Extension, Params, P> Transaction<Extension, Params, P>
 where
-    Extension: TrackerExtension<Config, Params, P> + Sync + Send,
-    Config: Default + Sync + Send,
+    Extension: TrackerExtension<Params, P> + Sync + Send,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
 {

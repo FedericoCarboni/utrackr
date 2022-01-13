@@ -1,4 +1,9 @@
-use std::{collections::HashMap, marker::PhantomData, net::IpAddr, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    net::IpAddr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use tokio::sync::RwLock;
 
@@ -29,35 +34,33 @@ fn match_ip(ip: &IpAddr, peer: &Peer) -> bool {
 }
 
 #[derive(Debug)]
-pub struct Tracker<Extension = NoExtension, Config = (), Params = (), P = EmptyParamsParser>
+pub struct Tracker<Extension = NoExtension, Params = (), P = EmptyParamsParser>
 where
-    Extension: TrackerExtension<Config, Params, P>,
-    Config: Default + Sync + Send,
+    Extension: TrackerExtension<Params, P>,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
 {
     extension: Extension,
-    config: TrackerConfig<Config>,
+    config: TrackerConfig,
     swarms: RwLock<HashMap<[u8; 20], RwLock<Swarm>>>,
     _marker: PhantomData<(Params, P)>,
 }
 
 impl Tracker {
     #[inline]
-    pub fn new(config: TrackerConfig<()>) -> Self {
+    pub fn new(config: TrackerConfig) -> Self {
         Self::with_extension(NoExtension, config)
     }
 }
 
-impl<Extension, Config, Params, P> Tracker<Extension, Config, Params, P>
+impl<Extension, Params, P> Tracker<Extension, Params, P>
 where
-    Extension: TrackerExtension<Config, Params, P>,
-    Config: Default + Sync + Send,
+    Extension: TrackerExtension<Params, P>,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
 {
     #[inline]
-    pub fn with_extension(extension: Extension, config: TrackerConfig<Config>) -> Self {
+    pub fn with_extension(extension: Extension, config: TrackerConfig) -> Self {
         Self {
             extension,
             config,
