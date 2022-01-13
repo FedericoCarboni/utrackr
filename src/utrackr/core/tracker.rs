@@ -149,4 +149,18 @@ where
             Err(Error::TorrentNotFound)
         }
     }
+
+    pub async fn scrape(&self, info_hashes: impl Iterator<Item = &[u8; 20]>) -> Vec<(i32, i32, i32)> {
+        let mut v = Vec::with_capacity(info_hashes.size_hint().1.unwrap_or(1));
+        let swarms = self.swarms.read().await;
+        for info_hash in info_hashes {
+            if let Some(swarm) = swarms.get(info_hash) {
+                let swarm = swarm.read().await;
+                v.push((swarm.complete(), swarm.incomplete(), swarm.downloaded()));
+            } else {
+                v.push((0, 0, 0));
+            }
+        }
+        v
+    }
 }

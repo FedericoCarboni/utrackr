@@ -153,7 +153,6 @@ where
             array_ref!(self.packet, 0, 8),
         )
     }
-    #[inline]
     pub(in crate::udp) async fn handle(&self) -> io::Result<()> {
         if self.packet[8..12] == ACTION_CONNECT {
             if self.packet_len >= MIN_CONNECT_SIZE && self.packet[0..8] == PROTOCOL_ID {
@@ -189,7 +188,6 @@ where
     /// Sends an error packet to the requesting client.
     /// We don't make any assumptions about clients, so all error messages
     /// should be printable ASCII characters.
-    #[inline]
     async fn error(&self, message: &str) -> io::Result<()> {
         // make sure that we have a terminating 0 byte
         debug_assert!(message.len() <= 55, "error message too long");
@@ -217,7 +215,6 @@ where
         }
         Ok(())
     }
-    #[inline]
     async fn connect(&self) -> io::Result<()> {
         debug_assert!(self.packet_len >= MIN_CONNECT_SIZE);
         debug_assert!(self.packet[0..8] == PROTOCOL_ID);
@@ -273,7 +270,6 @@ where
         )?;
         Ok((announce_params, params))
     }
-    #[inline]
     async fn announce(&self) -> Result<(), Error> {
         let (params, ext_params) = self.parse_announce()?;
         let (seeders, leechers, addrs) = self.tracker.announce(params, ext_params).await?;
@@ -317,7 +313,6 @@ where
         }
         Ok(())
     }
-    #[inline]
     async fn scrape(&self) -> io::Result<()> {
         let mut rpkt = [0u8; SCRAPE_SIZE];
         // action SCRAPE
@@ -325,33 +320,28 @@ where
         // transaction_id
         rpkt[4..8].copy_from_slice(&self.packet[12..16]);
 
-        let mut info_hashes = [[0; 20]; MAX_SCRAPE_TORRENTS];
-        let mut i = 0;
-        let mut offset = 16;
+        let len = (self.packet_len - 16) / 20 * 20 + 16;
 
-        while offset < self.packet_len {
-            let info_hash = *array_ref!(self.packet, offset, 20);
-            if info_hash == [0; 20] {
-                break;
-            }
-            info_hashes[i] = info_hash;
-            offset += 20;
-            i += 1;
+        let swarms = self
+            .tracker
+            .scrape(
+                self.packet[16..len]
+                    .chunks(20)
+                    .map(|s| array_ref!(s, 0, 20)),
+            )
+            .await;
+
+        for (index, (complete, incomplete, downloaded)) in swarms.iter().enumerate() {
+            rpkt[index * 12 + 8..index * 12 + 12].copy_from_slice(&complete.to_be_bytes());
+            rpkt[index * 12 + 12..index * 12 + 16].copy_from_slice(&downloaded.to_be_bytes());
+            rpkt[index * 12 + 16..index * 12 + 20].copy_from_slice(&incomplete.to_be_bytes());
         }
 
-        // self.tracker
-        //     .scrape(
-        //         &info_hashes[..i],
-        //         |index, (seeders, leechers, completed)| {
-        //             rpkt[index * 12 + 8..index * 12 + 12].copy_from_slice(&seeders.to_be_bytes());
-        //             rpkt[index * 12 + 12..index * 12 + 16]
-        //                 .copy_from_slice(&completed.to_be_bytes());
-        //             rpkt[index * 12 + 16..index * 12 + 20].copy_from_slice(&leechers.to_be_bytes());
-        //         },
-        //     )
-        //     .await;
-
-        if let Err(err) = self.socket.send_to(&rpkt[..offset], self.addr).await {
+        if let Err(err) = self
+            .socket
+            .send_to(&rpkt[..16 + swarms.len() * 12], self.addr)
+            .await
+        {
             log::error!("failed to send SCRAPE response: {}", err);
         }
         Ok(())

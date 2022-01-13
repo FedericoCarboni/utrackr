@@ -1,19 +1,22 @@
 //! UDP Tracker Protocol implemented according to BEP 15[^1], includes support
 //! for UDP extensions as specified by BEP 41[^2].
 //!
+//! ## BEP 41 vs Arvid Norbeg's specification
 //! `libtorrent-rasterbar`'s implementation of those extensions is based on
 //! Arvid Norberg's specification[^3], which differs enough from BEP 41[^2]
 //! to make the two incompatible to some extent. Fortunately as long as the
 //! client doesn't include the authentication extension[^4] in the request, the
-//! tracker will behave as expected.
+//! tracker will behave as expected. This authentication extension[^4] is not
+//! implemented by most clients and is not secure[^5].
 //!
 //! ## Limitations
 //! The tracker can't read request strings (path and query components) of more
 //! than `1934` characters. Realistically path and query together should not
-//! exceed `255` as most client implementations will only send up to `255`
-//! characters[^5].
+//! exceed `255` chars as most client implementations will only send up to `255`
+//! characters[^6].
 //!
-//! BEP 41 is not widely implemented, so it may not work for all BitTorrent clients.
+//! BEP 41 is not widely implemented, so it may not work for all BitTorrent
+//! clients.
 //!
 //! [^1]: [BEP 15, UDP Tracker Protocol for BitTorrent](https://www.bittorrent.org/beps/bep_0015.html)
 //!
@@ -23,7 +26,10 @@
 //!
 //! [^4]: [Arvid Norberg's specification for `libtorrent-rasterbar` § Authentication](https://www.libtorrent.org/udp_tracker_protocol.html#authentication)
 //!
-//! [^5]: [`libtorrent-rasterbar` only sends the first 255 chars of the request string](https://github.com/arvidn/libtorrent/blob/RC_2_0/src/udp_tracker_connection.cpp#L743)
+//! [^5]: When using this extension passwords can only be stored in unsalted
+//! [SHA-1](https://en.wikipedia.org/wiki/SHA-1)
+//!
+//! [^6]: [`libtorrent-rasterbar` only sends the first 255 chars of the request string](https://github.com/arvidn/libtorrent/blob/RC_2_0/src/udp_tracker_connection.cpp#L743)
 
 use std::{
     io,
