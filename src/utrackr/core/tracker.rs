@@ -34,6 +34,13 @@ where
     _marker: PhantomData<(Params, P)>,
 }
 
+impl Tracker {
+    #[inline]
+    pub fn new(config: TrackerConfig<()>) -> Self {
+        Self::with_extension(NoExtension, config)
+    }
+}
+
 impl<Extension, Config, Params, P> Tracker<Extension, Config, Params, P>
 where
     Extension: TrackerExtension<Config, Params, P>,
@@ -42,7 +49,7 @@ where
     P: ParamsParser<Params> + Sync + Send,
 {
     #[inline]
-    pub fn new(extension: Extension, config: TrackerConfig<Config>) -> Self {
+    pub fn with_extension(extension: Extension, config: TrackerConfig<Config>) -> Self {
         Self {
             extension,
             config,
