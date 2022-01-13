@@ -1,12 +1,22 @@
 use std::marker::PhantomData;
 
 use ring::signature::{VerificationAlgorithm, ED25519};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::core::{
   extensions::{NoExtension, TrackerExtension},
   AnnounceParams, EmptyParamsParser, Error, ParamsParser, Peer,
 };
+
+pub fn b64deserialize<'de, D: Deserializer<'de>>(
+  deserializer: D,
+) -> Result<[u8; 32], D::Error> {
+  let b64 = String::deserialize(deserializer)?;
+  let mut s = [0; 32];
+  base64::decode_config_slice(b64, base64::STANDARD, &mut s)
+    .map_err(de::Error::custom)?;
+  Ok(s)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Encoding {
@@ -24,22 +34,22 @@ impl Default for Encoding {
   }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Ed25519Config {
   #[serde(default)]
   param_name: String,
-  #[serde(default)]
-  encoding: Encoding,
-  #[serde(with = "crate::util::serde_pem")]
+  #[serde(default, rename = "encoding")]
+  _encoding: Encoding,
+  #[serde(deserialize_with = "b64deserialize")]
   public_key: [u8; 32],
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct Ed25519ConfigExt<T> {
   #[serde(default)]
   ed25519: Option<Ed25519Config>,
   #[serde(flatten)]
-  extension: T,
+  _extension: T,
 }
 
 #[derive(Debug)]
