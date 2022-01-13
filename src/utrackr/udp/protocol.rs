@@ -255,6 +255,7 @@ where
                 1 => Event::Completed,
                 2 => Event::Started,
                 3 => Event::Stopped,
+                4 => Event::Paused,
                 _ => Event::None,
             },
             num_want,
