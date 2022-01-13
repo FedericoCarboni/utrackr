@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, net::IpAddr};
+use std::{collections::BTreeMap, net::{IpAddr, Ipv4Addr, Ipv6Addr}};
 
 use rand::seq::IteratorRandom;
 
@@ -19,8 +19,8 @@ pub struct Peer {
     pub uploaded: i64,
     pub left: i64,
     pub is_partial_seeder: bool,
-    // interop support for IPv6/IPv4 is missing
-    pub ip: IpAddr,
+    pub ipv4: Option<Ipv4Addr>,
+    pub ipv6: Ipv6Addr,
     pub port: u16,
     pub key: Option<u32>,
     pub last_announce: u64,
@@ -72,16 +72,25 @@ impl Swarm {
     ) -> Vec<(IpAddr, u16)> {
         self.peers
             .iter()
-            .filter(|(id, peer)| {
+            .filter_map(|(id, peer)| {
                 // don't announce peers to themselves
-                *id != peer_id
+                if id != peer_id
                     // don't announce seeders to other seeders
                     && (peer.is_seeder() || !seeding)
-                    // don't announce IPv6 peers to IPv4 peers, but allow IPv4
-                    // addresses in IPv6 announces.
-                    && (ip.is_ipv6() || peer.ip.is_ipv4())
+                {
+                    if ip.is_ipv4() {
+                        if let Some(ipv4) = peer.ipv4 {
+                            Some((IpAddr::V4(ipv4), peer.port))
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some((IpAddr::V6(peer.ipv6), peer.port))
+                    }
+                } else {
+                    None
+                }
             })
-            .map(|(_, peer)| (peer.ip, peer.port))
             .choose_multiple(&mut rand::thread_rng(), amount)
     }
     pub fn announce(&mut self, params: &AnnounceParams, ip: IpAddr) {
@@ -108,7 +117,10 @@ impl Swarm {
             if params.event() == Event::Paused {
                 peer.is_partial_seeder = true;
             }
-            peer.ip = ip;
+            match ip {
+                IpAddr::V4(ipv4) => peer.ipv4 = Some(ipv4),
+                IpAddr::V6(ipv6) => peer.ipv6 = ipv6,
+            }
             peer.port = params.port();
             peer.key = params.key();
             peer.last_announce = params.time();
@@ -125,7 +137,14 @@ impl Swarm {
                     uploaded: params.uploaded(),
                     left: params.left(),
                     is_partial_seeder: params.event() == Event::Paused,
-                    ip,
+                    ipv4: match ip {
+                        IpAddr::V4(ipv4) => Some(ipv4),
+                        IpAddr::V6(_) => None,
+                    },
+                    ipv6: match ip {
+                        IpAddr::V4(ipv4) => ipv4.to_ipv6_mapped(),
+                        IpAddr::V6(ipv6) => ipv6,
+                    },
                     port: params.port(),
                     key: params.key(),
                     last_announce: params.time(),

@@ -7,7 +7,7 @@ use super::{
     config::TrackerConfig,
     extensions::{NoExtension, TrackerExtension},
     params::{EmptyParamsParser, ParamsParser},
-    swarm::{Event, Swarm},
+    swarm::{Event, Swarm, Peer},
     Error,
 };
 
@@ -76,6 +76,14 @@ where
             || self.config.unsafe_trust_ip_param
     }
 
+    #[inline]
+    fn match_ip(&self, ip: &IpAddr, peer: &Peer) -> bool {
+        match ip {
+            IpAddr::V4(a) => peer.ipv4.map(|b| *a == b).unwrap_or(false),
+            IpAddr::V6(a) => *a == peer.ipv6,
+        }
+    }
+
     pub async fn announce(
         &self,
         params: AnnounceParams,
@@ -105,7 +113,7 @@ where
                     // If the peer_id is already in the swarm check that the IP or
                     // key match. Announce requests will be rejected if IP address
                     // changed and the key doesn't match or is absent.
-                    if ip != peer.ip
+                    if !self.match_ip(&ip, peer)
                         && (self.config.deny_all_ip_changes
                             || params.key().is_none()
                             || params.key() != peer.key)
