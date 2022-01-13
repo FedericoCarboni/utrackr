@@ -1,39 +1,17 @@
-use std::{
-    collections::BTreeMap,
-    net::{IpAddr, SocketAddr},
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, net::IpAddr};
 
 use rand::seq::IteratorRandom;
 
-use crate::core::Error;
+use crate::core::announce::AnnounceParams;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Event {
     None,
     Completed,
     Started,
     Stopped,
-    Paused,
-}
-
-#[derive(Debug, Clone)]
-pub struct Announce {
-    pub info_hash: [u8; 20],
-    pub peer_id: [u8; 20],
-    pub downloaded: i64,
-    pub uploaded: i64,
-    pub left: i64,
-    #[cfg(feature = "announce-corrupt-redudant")]
-    pub corrupt: i64,
-    #[cfg(feature = "announce-corrupt-redudant")]
-    pub redudant: i64,
-    pub event: Event,
-    pub addr: SocketAddr,
-    pub ip_param: Option<IpAddr>,
-    pub key: Option<u32>,
-    pub num_want: i32,
-    pub instant: Instant,
+    // BEP 21
+    // Paused,
 }
 
 #[derive(Debug)]
@@ -41,9 +19,18 @@ pub struct Peer {
     pub downloaded: i64,
     pub uploaded: i64,
     pub left: i64,
-    pub addr: SocketAddr,
+    // interop support for IPv6/IPv4 is missing
+    pub ip: IpAddr,
+    pub port: u16,
     pub key: Option<u32>,
-    pub announce: Instant,
+    pub last_announce: u64,
+}
+
+impl Peer {
+    #[inline]
+    pub fn is_seeder(&self) -> bool {
+        self.left == 0
+    }
 }
 
 /// In-Memory store of a peer swarm
@@ -68,42 +55,43 @@ impl Swarm {
     pub fn downloaded(&self) -> i32 {
         self.downloaded
     }
-    pub fn validate(&self, announce: &Announce) -> Result<(), Error> {
-        if let Some(peer) = self.peers.get(&announce.peer_id) {
-            // BitTorrent clients should use the key parameter to prove their
-            // identity should their ip address
-            if peer.addr.ip() != announce.addr.ip()
-                && (peer.key != announce.key || peer.key.is_none())
-            {
-                return Err(Error::IpAddressChanged);
-            }
-        }
-        Ok(())
+    #[inline]
+    pub fn peers(&self) -> &BTreeMap<[u8; 20], Peer> {
+        &self.peers
     }
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
-    pub fn select(&self, announce: &Announce) -> Vec<([u8; 20], SocketAddr)> {
+    pub fn select(
+        &self,
+        peer_id: &[u8; 20],
+        ip: &IpAddr,
+        seeding: bool,
+        amount: usize,
+    ) -> Vec<(IpAddr, u16)> {
         self.peers
             .iter()
-            // don't announce peers to themselves or announce seeders to other seeders
-            .filter(|(&id, peer)| {
-                id != announce.peer_id
-                    && (peer.left != 0 || announce.left != 0)
-                    && (announce.addr.is_ipv6() || peer.addr.is_ipv4())
+            .filter(|(id, peer)| {
+                // don't announce peers to themselves
+                *id != peer_id
+                    // don't announce seeders to other seeders
+                    && (peer.is_seeder() || !seeding)
+                    // don't announce IPv6 peers to IPv4 peers, but allow IPv4
+                    // addresses in IPv6 announces.
+                    && (ip.is_ipv6() || peer.ip.is_ipv4())
             })
-            .map(|(&id, peer)| (id, peer.addr))
-            .choose_multiple(&mut rand::thread_rng(), announce.num_want as usize)
+            .map(|(_, peer)| (peer.ip, peer.port))
+            .choose_multiple(&mut rand::thread_rng(), amount)
     }
-    pub fn announce(&mut self, announce: &Announce) {
-        match announce.event {
+    pub fn announce(&mut self, params: &AnnounceParams, ip: IpAddr) {
+        match params.event() {
             Event::Completed => {
                 self.downloaded += 1;
             }
-            Event::Stopped | Event::Paused => {
-                if let Some(peer) = self.peers.remove(&announce.peer_id) {
-                    if peer.left == 0 {
+            Event::Stopped => {
+                if let Some(peer) = self.peers.remove(params.peer_id()) {
+                    if peer.is_seeder() {
                         self.complete -= 1;
                     } else {
                         self.incomplete -= 1;
@@ -113,35 +101,37 @@ impl Swarm {
             }
             _ => {}
         }
-        if let Some(peer) = self.peers.get_mut(&announce.peer_id) {
-            peer.downloaded = announce.downloaded;
-            peer.uploaded = announce.uploaded;
-            peer.left = announce.left;
-            peer.addr = announce.addr;
-            peer.key = announce.key;
-            peer.announce = announce.instant;
+        if let Some(peer) = self.peers.get_mut(params.peer_id()) {
+            peer.downloaded = params.downloaded();
+            peer.uploaded = params.uploaded();
+            peer.left = params.left();
+            peer.ip = ip;
+            peer.port = params.port();
+            peer.key = params.key();
+            peer.last_announce = params.time();
         } else {
-            if announce.left == 0 {
+            if params.left() == 0 {
                 self.complete += 1;
             } else {
                 self.incomplete += 1;
             }
             self.peers.insert(
-                announce.peer_id,
+                *params.peer_id(),
                 Peer {
-                    downloaded: announce.downloaded,
-                    uploaded: announce.uploaded,
-                    left: announce.left,
-                    addr: announce.addr,
-                    key: announce.key,
-                    announce: announce.instant,
+                    downloaded: params.downloaded(),
+                    uploaded: params.uploaded(),
+                    left: params.left(),
+                    ip,
+                    port: params.port(),
+                    key: params.key(),
+                    last_announce: params.time(),
                 },
             );
         }
     }
-    pub(crate) fn evict(&mut self, now: Instant, threshold: Duration) {
+    pub(crate) fn evict(&mut self, now: u64, threshold: u64) {
         self.peers.retain(|_, peer| {
-            let is_not_expired = now - peer.announce < threshold;
+            let is_not_expired = now - peer.last_announce < threshold;
             if !is_not_expired {
                 if peer.left == 0 {
                     self.complete -= 1;
