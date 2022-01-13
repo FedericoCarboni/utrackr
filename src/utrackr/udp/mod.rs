@@ -49,27 +49,25 @@ use crate::udp::protocol::{Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE
 mod extensions;
 mod protocol;
 
-pub struct UdpTracker<Extension = NoExtension, Config = (), Params = (), P = EmptyParamsParser>
+pub struct UdpTracker<Extension = NoExtension, Params = (), P = EmptyParamsParser>
 where
-    Extension: TrackerExtension<Config, Params, P>,
-    Config: Default + Sync + Send,
+    Extension: TrackerExtension<Params, P>,
     Params: Sync + Send,
     P: ParamsParser<Params> + Sync + Send,
 {
-    tracker: Arc<Tracker<Extension, Config, Params, P>>,
+    tracker: Arc<Tracker<Extension, Params, P>>,
     socket: Arc<UdpSocket>,
     secret: Secret,
 }
 
-impl<Extension, Config, Params, P> UdpTracker<Extension, Config, Params, P>
+impl<Extension, Params, P> UdpTracker<Extension, Params, P>
 where
-    Extension: 'static + TrackerExtension<Config, Params, P> + Sync + Send,
-    Config: 'static + Default + Sync + Send,
+    Extension: 'static + TrackerExtension<Params, P> + Sync + Send,
     Params: 'static + Sync + Send,
     P: 'static + ParamsParser<Params> + Sync + Send,
 {
     pub async fn bind(
-        tracker: Arc<Tracker<Extension, Config, Params, P>>,
+        tracker: Arc<Tracker<Extension, Params, P>>,
         config: UdpConfig,
     ) -> io::Result<Self> {
         let socket = UdpSocket::bind(config.bind.addrs()).await?;

@@ -26,6 +26,8 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 env_logger = "0.9"
 toml = "0.5"
+base64 = "0.13"
+untrusted = "0.7"
 
 [profile.release]
 lto = true

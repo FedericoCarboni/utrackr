@@ -21,17 +21,14 @@ trust_ip_param_if_local = false
 deny_all_ip_changes = false
 
 # enable torrent verification using ED25519 signatures, requires BEP 41 support
-[tracker.ed25519]
+[ed25519]
 # The encoding of the signature inside the url query.
 encoding = "base64" # may also be "hex", or "binary"
 # The query parameter name to extract the signature from. Cannot be more than 32
 # characters long.
-param_name = "x-verify"
+param_name = "verify"
 # ED25519 public key used to verify torrents
-public_key = "" # may be a pem encoded string or a path to a pem encoded file
-# If set to true the tracker will require this verification even for torrents
-# that are in the database
-required = false
+public_key = "twc3FJQM4FoA7amTRGA4RdZb5ho/VBrrq+W38SCynX8"
 
 [tracker.database]
 autosave = 60

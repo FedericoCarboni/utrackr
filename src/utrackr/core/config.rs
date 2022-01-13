@@ -112,7 +112,7 @@ fn default_max_num_want() -> i32 {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct TrackerConfig<T: Default> {
+pub struct TrackerConfig {
     /// Duration, in seconds that the clients should wait for before announcing
     /// again.
     #[serde(default = "default_interval")]
@@ -177,12 +177,9 @@ pub struct TrackerConfig<T: Default> {
     /// announce requests if the IP address of the peer doesn't match.
     #[serde(default)]
     pub deny_all_ip_changes: bool,
-
-    #[serde(default, flatten)]
-    pub extensions: T,
 }
 
-impl<T: Default> Default for TrackerConfig<T> {
+impl Default for TrackerConfig {
     fn default() -> Self {
         Self {
             interval: default_interval(),
@@ -196,8 +193,6 @@ impl<T: Default> Default for TrackerConfig<T> {
             unsafe_trust_ip_param: false,
             trust_ip_param_if_local: false,
             deny_all_ip_changes: false,
-
-            extensions: T::default(),
         }
     }
 }
@@ -247,7 +242,9 @@ pub struct DatabaseConfig {}
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct Config<T: Default> {
     #[serde(default)]
-    pub tracker: TrackerConfig<T>,
+    pub tracker: TrackerConfig,
+    #[serde(default, flatten)]
+    pub extensions: T,
     // #[serde(default)]
     // pub http: HttpConfig,
     #[serde(default)]
