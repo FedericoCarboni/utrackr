@@ -126,7 +126,7 @@ where
                         swarm.select(
                             params.peer_id(),
                             &ip,
-                            params.left() == 0,
+                            params.left() == 0 || params.event() == Event::Paused,
                             if params.num_want() < 0 {
                                 self.config.default_num_want
                             } else if params.num_want() > self.config.max_num_want {

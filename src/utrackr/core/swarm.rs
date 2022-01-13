@@ -10,8 +10,7 @@ pub enum Event {
     Completed,
     Started,
     Stopped,
-    // BEP 21
-    // Paused,
+    Paused,
 }
 
 #[derive(Debug)]
@@ -19,6 +18,7 @@ pub struct Peer {
     pub downloaded: i64,
     pub uploaded: i64,
     pub left: i64,
+    pub is_partial_seeder: bool,
     // interop support for IPv6/IPv4 is missing
     pub ip: IpAddr,
     pub port: u16,
@@ -29,7 +29,7 @@ pub struct Peer {
 impl Peer {
     #[inline]
     pub fn is_seeder(&self) -> bool {
-        self.left == 0
+        self.left == 0 || self.is_partial_seeder
     }
 }
 
@@ -105,6 +105,9 @@ impl Swarm {
             peer.downloaded = params.downloaded();
             peer.uploaded = params.uploaded();
             peer.left = params.left();
+            if params.event() == Event::Paused {
+                peer.is_partial_seeder = true;
+            }
             peer.ip = ip;
             peer.port = params.port();
             peer.key = params.key();
@@ -121,6 +124,7 @@ impl Swarm {
                     downloaded: params.downloaded(),
                     uploaded: params.uploaded(),
                     left: params.left(),
+                    is_partial_seeder: params.event() == Event::Paused,
                     ip,
                     port: params.port(),
                     key: params.key(),
