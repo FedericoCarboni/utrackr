@@ -10,8 +10,9 @@ use ring::digest;
 use tokio::net::UdpSocket;
 
 use crate::core::extensions::TrackerExtension;
-use crate::core::params::{EmptyParamsParser, ParamsParser};
-use crate::core::{announce::AnnounceParams, Error, Event, Tracker, MAX_NUM_WANT};
+use crate::core::{
+    AnnounceParams, EmptyParamsParser, Error, Event, ParamsParser, Tracker, MAX_NUM_WANT,
+};
 
 use crate::udp::extensions::parse_extensions;
 

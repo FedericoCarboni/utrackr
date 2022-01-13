@@ -41,9 +41,8 @@ use rand::random;
 use tokio::net::UdpSocket;
 
 use crate::core::{
-    extensions::{TrackerExtension, NoExtension},
-    params::{EmptyParamsParser, ParamsParser},
-    Tracker, UdpConfig,
+    extensions::{NoExtension, TrackerExtension},
+    EmptyParamsParser, ParamsParser, Tracker, UdpConfig,
 };
 use crate::udp::protocol::{Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE};
 

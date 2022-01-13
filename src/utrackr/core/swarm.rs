@@ -79,11 +79,7 @@ impl Swarm {
                     && (peer.is_seeder() || !seeding)
                 {
                     if ip.is_ipv4() {
-                        if let Some(ipv4) = peer.ipv4 {
-                            Some((IpAddr::V4(ipv4), peer.port))
-                        } else {
-                            None
-                        }
+                        peer.ipv4.map(|ipv4| (IpAddr::V4(ipv4), peer.port))
                     } else {
                         Some((IpAddr::V6(peer.ipv6), peer.port))
                     }

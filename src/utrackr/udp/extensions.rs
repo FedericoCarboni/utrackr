@@ -1,7 +1,6 @@
 use crate::core::{
-    params::ParamsParser,
     query::{decode_percent_byte, QueryParser},
-    Error,
+    Error, ParamsParser,
 };
 
 const OPTION_TYPE_END: u8 = 0x0;

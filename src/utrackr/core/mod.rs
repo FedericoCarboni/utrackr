@@ -1,15 +1,18 @@
+mod announce;
+mod config;
+mod error;
+pub mod extensions;
+mod params;
+pub(crate) mod query;
 mod swarm;
 mod tracker;
-mod config;
-pub use tracker::Tracker;
-pub use swarm::*;
+
+pub use announce::AnnounceParams;
+pub use params::{ParamsParser, EmptyParamsParser};
 pub use config::*;
-mod error;
-pub mod params;
-pub mod query;
 pub use error::Error;
-pub mod announce;
-pub mod extensions;
+pub use swarm::*;
+pub use tracker::Tracker;
 
 /// This is a hard-coded maximum value for the number of peers that can be
 /// returned in an ANNOUNCE response.
