@@ -28,7 +28,11 @@ async fn main() {
     }
 
     let tracker = Arc::new(Tracker::new(cfg.tracker));
-    // tracker.start_autosave();
+
+    let tracker_clone = tracker.clone();
+    tokio::spawn(async move {
+        tracker_clone.run_clean_loop().await;
+    });
 
     let mut udp_join_handle = if cfg.udp.disable {
         tokio::spawn(async {})

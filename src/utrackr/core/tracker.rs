@@ -1,4 +1,4 @@
-use std::{collections::HashMap, marker::PhantomData, net::IpAddr};
+use std::{collections::HashMap, marker::PhantomData, net::IpAddr, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use tokio::sync::RwLock;
 
@@ -7,7 +7,7 @@ use super::{
     config::TrackerConfig,
     extensions::{NoExtension, TrackerExtension},
     params::{EmptyParamsParser, ParamsParser},
-    swarm::{Event, Swarm, Peer},
+    swarm::{Event, Peer, Swarm},
     Error,
 };
 
@@ -17,6 +17,14 @@ fn is_local(ip: &IpAddr) -> bool {
         IpAddr::V4(ipv4) => ipv4.is_private(),
         // is_unique_local is not stabilized yet
         IpAddr::V6(ipv6) => (ipv6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
+#[inline]
+fn match_ip(ip: &IpAddr, peer: &Peer) -> bool {
+    match ip {
+        IpAddr::V4(a) => peer.ipv4.map(|b| *a == b).unwrap_or(false),
+        IpAddr::V6(a) => *a == peer.ipv6,
     }
 }
 
@@ -76,14 +84,6 @@ where
             || self.config.unsafe_trust_ip_param
     }
 
-    #[inline]
-    fn match_ip(&self, ip: &IpAddr, peer: &Peer) -> bool {
-        match ip {
-            IpAddr::V4(a) => peer.ipv4.map(|b| *a == b).unwrap_or(false),
-            IpAddr::V6(a) => *a == peer.ipv6,
-        }
-    }
-
     pub async fn announce(
         &self,
         params: AnnounceParams,
@@ -113,7 +113,7 @@ where
                     // If the peer_id is already in the swarm check that the IP or
                     // key match. Announce requests will be rejected if IP address
                     // changed and the key doesn't match or is absent.
-                    if !self.match_ip(&ip, peer)
+                    if !match_ip(&ip, peer)
                         && (self.config.deny_all_ip_changes
                             || params.key().is_none()
                             || params.key() != peer.key)
@@ -165,7 +165,10 @@ where
         }
     }
 
-    pub async fn scrape(&self, info_hashes: impl Iterator<Item = &[u8; 20]>) -> Vec<(i32, i32, i32)> {
+    pub async fn scrape(
+        &self,
+        info_hashes: impl Iterator<Item = &[u8; 20]>,
+    ) -> Vec<(i32, i32, i32)> {
         let mut v = Vec::with_capacity(info_hashes.size_hint().1.unwrap_or(1));
         let swarms = self.swarms.read().await;
         for info_hash in info_hashes {
@@ -177,5 +180,23 @@ where
             }
         }
         v
+    }
+
+    pub async fn run_clean_loop(&self) {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let swarms = self.swarms.write().await;
+            for (_, swarm) in swarms.iter() {
+                let mut swarm = swarm.write().await;
+                // TODO: swarms themselves should be removed as well if they
+                // have to peers
+                swarm.evict(now, self.config.max_interval as u64);
+            }
+        }
     }
 }

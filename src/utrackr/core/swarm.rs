@@ -152,7 +152,7 @@ impl Swarm {
             );
         }
     }
-    pub(crate) fn evict(&mut self, now: u64, threshold: u64) {
+    pub(crate) fn evict(&mut self, now: u64, threshold: u64) -> bool {
         self.peers.retain(|_, peer| {
             let is_not_expired = now - peer.last_announce < threshold;
             if !is_not_expired {
@@ -164,5 +164,6 @@ impl Swarm {
             }
             is_not_expired
         });
+        self.is_empty()
     }
 }
