@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, net::{IpAddr, Ipv4Addr, Ipv6Addr}};
+use std::{
+    collections::BTreeMap,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+};
 
 use rand::seq::IteratorRandom;
 

@@ -1,8 +1,8 @@
 use std::{fs::File, io::prelude::*, sync::Arc};
 
-use utrackr::core::{Config, Tracker, extensions::NoExtension};
-use utrackr::udp::UdpTracker;
+use utrackr::core::{extensions::NoExtension, Config, Tracker};
 use utrackr::extensions::ed25519::{Ed25519, Ed25519ConfigExt};
+use utrackr::udp::UdpTracker;
 
 #[tokio::main]
 async fn main() {
@@ -30,7 +30,7 @@ async fn main() {
 
     let tracker = Arc::new(Tracker::with_extension(
         Ed25519::with_extension(NoExtension, cfg.extensions),
-        cfg.tracker
+        cfg.tracker,
     ));
 
     let tracker_clone = tracker.clone();

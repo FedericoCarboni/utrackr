@@ -7,11 +7,11 @@ pub(crate) mod query;
 mod swarm;
 mod tracker;
 
-pub use swarm::Peer;
 pub use announce::AnnounceParams;
-pub use params::{ParamsParser, EmptyParamsParser};
 pub use config::*;
 pub use error::Error;
+pub use params::{EmptyParamsParser, ParamsParser};
+pub use swarm::Peer;
 pub use swarm::*;
 pub use tracker::Tracker;
 

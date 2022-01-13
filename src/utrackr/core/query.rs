@@ -83,7 +83,9 @@ fn to_digit(b: u8) -> Option<u8> {
 }
 
 #[inline]
-pub(crate) fn decode_percent_byte<'a>(iter: &mut (impl Iterator<Item = &'a u8> + Clone)) -> Option<u8> {
+pub(crate) fn decode_percent_byte<'a>(
+    iter: &mut (impl Iterator<Item = &'a u8> + Clone),
+) -> Option<u8> {
     let mut clone_iter = iter.clone();
     let h = to_digit(*clone_iter.next()?)?;
     let l = to_digit(*clone_iter.next()?)?;

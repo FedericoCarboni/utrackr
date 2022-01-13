@@ -1,5 +1,5 @@
 pub mod serde_pem {
-    use serde::{Serializer, Deserialize, Deserializer, de};
+    use serde::{de, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer, T>(_: T, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str("")
