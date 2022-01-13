@@ -32,106 +32,114 @@
 //! [^6]: [`libtorrent-rasterbar` only sends the first 255 chars of the request string](https://github.com/arvidn/libtorrent/blob/RC_2_0/src/udp_tracker_connection.cpp#L743)
 
 use std::{
-    io,
-    net::{IpAddr, Ipv4Addr},
-    sync::Arc,
+  io,
+  net::{IpAddr, Ipv4Addr},
+  sync::Arc,
 };
 
 use rand::random;
 use tokio::net::UdpSocket;
 
 use crate::core::{
-    extensions::{NoExtension, TrackerExtension},
-    EmptyParamsParser, ParamsParser, Tracker, UdpConfig,
+  extensions::{NoExtension, TrackerExtension},
+  EmptyParamsParser, ParamsParser, Tracker, UdpConfig,
 };
-use crate::udp::protocol::{Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE};
+use crate::udp::protocol::{
+  Secret, Transaction, MAX_PACKET_SIZE, MIN_PACKET_SIZE,
+};
 
 mod extensions;
 mod protocol;
 
-pub struct UdpTracker<Extension = NoExtension, Params = (), P = EmptyParamsParser>
-where
-    Extension: TrackerExtension<Params, P>,
-    Params: Sync + Send,
-    P: ParamsParser<Params> + Sync + Send,
+pub struct UdpTracker<
+  Extension = NoExtension,
+  Params = (),
+  P = EmptyParamsParser,
+> where
+  Extension: TrackerExtension<Params, P>,
+  Params: Sync + Send,
+  P: ParamsParser<Params> + Sync + Send,
 {
-    tracker: Arc<Tracker<Extension, Params, P>>,
-    socket: Arc<UdpSocket>,
-    secret: Secret,
+  tracker: Arc<Tracker<Extension, Params, P>>,
+  socket: Arc<UdpSocket>,
+  secret: Secret,
 }
 
 impl<Extension, Params, P> UdpTracker<Extension, Params, P>
 where
-    Extension: 'static + TrackerExtension<Params, P> + Sync + Send,
-    Params: 'static + Sync + Send,
-    P: 'static + ParamsParser<Params> + Sync + Send,
+  Extension: 'static + TrackerExtension<Params, P> + Sync + Send,
+  Params: 'static + Sync + Send,
+  P: 'static + ParamsParser<Params> + Sync + Send,
 {
-    pub async fn bind(
-        tracker: Arc<Tracker<Extension, Params, P>>,
-        config: UdpConfig,
-    ) -> io::Result<Self> {
-        let socket = UdpSocket::bind(config.bind.addrs()).await?;
-        let addr = socket.local_addr()?;
-        log::info!("udp tracker bound to {:?}", addr);
-        let secret = random();
-        Ok(Self {
-            socket: Arc::new(socket),
-            secret,
-            tracker,
-        })
-    }
-    /// Run the server indefinitely, this function is cancel safe.
-    pub async fn run(self) {
-        loop {
-            let mut packet = [0; MAX_PACKET_SIZE];
-            match self.socket.recv_from(&mut packet).await {
-                Ok((packet_len, addr)) => {
-                    // ill-sized packets are ignored
-                    if packet_len < MIN_PACKET_SIZE {
-                        log::trace!("packet too small: received packet of length {}", packet_len,);
-                        continue;
-                    }
-                    if packet_len > MAX_PACKET_SIZE {
-                        log::trace!(
-                            "packet too big: received packet of length {}, ignored",
-                            packet_len,
-                        );
-                        continue;
-                    }
-                    log::trace!("received packet of length {}", packet_len);
-                    let socket = Arc::clone(&self.socket);
-                    let secret = self.secret;
-                    let tracker = Arc::clone(&self.tracker);
-                    let remote_ip = match addr.ip() {
-                        ipv4 @ IpAddr::V4(_) => ipv4,
-                        ipv6 @ IpAddr::V6(v6) => match v6.octets() {
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
-                                IpAddr::V4(Ipv4Addr::new(a, b, c, d))
-                            }
-                            _ => ipv6,
-                        },
-                    };
-                    //let instant = Instant::now();
-                    // handle the request concurrently
-                    tokio::spawn(async move {
-                        let transaction = Transaction {
-                            socket,
-                            secret,
-                            tracker,
-                            remote_ip,
-                            packet,
-                            packet_len,
-                            addr,
-                        };
-                        if let Err(err) = transaction.handle().await {
-                            log::error!("transaction handler failed: {}", err);
-                        }
-                    });
-                }
-                Err(err) => {
-                    log::error!("unexpected io error while reading udp socket {}", err);
-                }
+  pub async fn bind(
+    tracker: Arc<Tracker<Extension, Params, P>>,
+    config: UdpConfig,
+  ) -> io::Result<Self> {
+    let socket = UdpSocket::bind(config.bind.addrs()).await?;
+    let addr = socket.local_addr()?;
+    log::info!("udp tracker bound to {:?}", addr);
+    let secret = random();
+    Ok(Self {
+      socket: Arc::new(socket),
+      secret,
+      tracker,
+    })
+  }
+  /// Run the server indefinitely, this function is cancel safe.
+  pub async fn run(self) {
+    loop {
+      let mut packet = [0; MAX_PACKET_SIZE];
+      match self.socket.recv_from(&mut packet).await {
+        Ok((packet_len, addr)) => {
+          // ill-sized packets are ignored
+          if packet_len < MIN_PACKET_SIZE {
+            log::trace!(
+              "packet too small: received packet of length {}",
+              packet_len,
+            );
+            continue;
+          }
+          if packet_len > MAX_PACKET_SIZE {
+            log::trace!(
+              "packet too big: received packet of length {}, ignored",
+              packet_len,
+            );
+            continue;
+          }
+          log::trace!("received packet of length {}", packet_len);
+          let socket = Arc::clone(&self.socket);
+          let secret = self.secret;
+          let tracker = Arc::clone(&self.tracker);
+          let remote_ip = match addr.ip() {
+            ipv4 @ IpAddr::V4(_) => ipv4,
+            ipv6 @ IpAddr::V6(v6) => match v6.octets() {
+              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
+                IpAddr::V4(Ipv4Addr::new(a, b, c, d))
+              }
+              _ => ipv6,
+            },
+          };
+          //let instant = Instant::now();
+          // handle the request concurrently
+          tokio::spawn(async move {
+            let transaction = Transaction {
+              socket,
+              secret,
+              tracker,
+              remote_ip,
+              packet,
+              packet_len,
+              addr,
+            };
+            if let Err(err) = transaction.handle().await {
+              log::error!("transaction handler failed: {}", err);
             }
+          });
         }
+        Err(err) => {
+          log::error!("unexpected io error while reading udp socket {}", err);
+        }
+      }
     }
+  }
 }
