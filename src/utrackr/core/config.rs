@@ -212,7 +212,7 @@ pub struct UdpConfig {
 pub struct Config<T: Default> {
     #[serde(default)]
     pub tracker: TrackerConfig,
-    #[serde(default, flatten)]
+    #[serde(default)]
     pub extensions: T,
     #[serde(default)]
     pub udp: UdpConfig,
