@@ -28,6 +28,7 @@ env_logger = "0.9"
 toml = "0.5"
 base64 = "0.13"
 untrusted = "0.7"
+clap = { version = "3.0.7", features = ["cargo"] }
 
 [profile.release]
 lto = true

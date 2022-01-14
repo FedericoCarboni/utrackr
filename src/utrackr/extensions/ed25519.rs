@@ -35,7 +35,7 @@ impl Default for Encoding {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct Ed25519Config {
+pub struct Ed25519ConfigInner {
   #[serde(default)]
   param_name: String,
   #[serde(default, rename = "encoding")]
@@ -45,9 +45,9 @@ pub struct Ed25519Config {
 }
 
 #[derive(Debug, Default, Deserialize)]
-pub struct Ed25519ConfigExt<T> {
+pub struct Ed25519Config<T> {
   #[serde(default)]
-  ed25519: Option<Ed25519Config>,
+  ed25519: Option<Ed25519ConfigInner>,
   #[serde(flatten)]
   _extension: T,
 }
@@ -111,9 +111,18 @@ where
   P: Sync + Send,
   D: ParamsParser<P> + Sync + Send,
 {
-  config: Ed25519ConfigExt<C>,
+  config: Ed25519Config<C>,
   extension: E,
   _marker: PhantomData<(P, D)>,
+}
+
+impl Ed25519 {
+  /// Create a new Ed25519 extension. To chain other extensions use
+  /// [`with_extension`].
+  #[inline]
+  pub fn new(config: Ed25519Config<()>) -> Self {
+    Self::with_extension(NoExtension, config)
+  }
 }
 
 impl<E, C, P, D> Ed25519<E, C, P, D>
@@ -123,7 +132,7 @@ where
   D: ParamsParser<P> + Sync + Send,
 {
   #[inline]
-  pub fn with_extension(extension: E, config: Ed25519ConfigExt<C>) -> Self {
+  pub fn with_extension(extension: E, config: Ed25519Config<C>) -> Self {
     Self {
       config,
       extension,

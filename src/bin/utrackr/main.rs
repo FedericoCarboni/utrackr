@@ -1,7 +1,9 @@
 use std::{fs::File, io::prelude::*, sync::Arc};
 
+use clap::{app_from_crate, arg};
+
 use utrackr::core::{extensions::NoExtension, Config, Tracker};
-use utrackr::extensions::ed25519::{Ed25519, Ed25519ConfigExt};
+use utrackr::extensions::ed25519::{Ed25519, Ed25519Config};
 use utrackr::udp::UdpTracker;
 
 #[tokio::main]
@@ -11,26 +13,29 @@ async fn main() {
     .parse_env("UTRACKR_LOG")
     .init();
 
-  let mut f = File::open("utrackr.toml").unwrap();
-  let mut s = String::new();
-  f.read_to_string(&mut s).unwrap();
+  let args = app_from_crate!()
+    // .color(ColorChoice::Never)
+    .arg(arg!(-c --config [CONFIG] "Optionally sets a config file to use"))
+    .get_matches();
 
-  let cfg: Config<Ed25519ConfigExt<()>> = match toml::from_str(&s) {
-    Ok(cfg) => cfg,
-    Err(err) => {
-      log::error!("{}", err);
-      panic!("{}", err);
-    }
-  };
+  let config: Config<Ed25519Config<()>> = args
+    .value_of("config")
+    .map(|f| {
+      let mut f = File::open(f).unwrap();
+      let mut s = String::new();
+      f.read_to_string(&mut s).unwrap();
+      toml::from_str(&s).unwrap()
+    })
+    .unwrap_or_default();
 
-  if cfg.udp.disable {
+  if config.udp.disable {
     log::error!("udp tracker disabled");
-    panic!("udp tracker disabled");
+    std::process::exit(1);
   }
 
   let tracker = Arc::new(Tracker::with_extension(
-    Ed25519::with_extension(NoExtension, cfg.extensions),
-    cfg.tracker,
+    Ed25519::new(config.extensions),
+    config.tracker,
   ));
 
   let tracker_clone = tracker.clone();
@@ -38,10 +43,10 @@ async fn main() {
     tracker_clone.run_clean_loop().await;
   });
 
-  let mut udp_join_handle = if cfg.udp.disable {
+  let mut udp_join_handle = if config.udp.disable {
     tokio::spawn(async {})
   } else {
-    match UdpTracker::bind(tracker, cfg.udp).await {
+    match UdpTracker::bind(tracker, config.udp).await {
       Ok(udp) => tokio::spawn(udp.run()),
       Err(err) => {
         log::error!("udp tracker failed {}", err);
