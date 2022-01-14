@@ -253,16 +253,16 @@ where
         let key = u32::from_be_bytes(*array_ref!(self.packet, 88, 4));
         let num_want = i32::from_be_bytes(*array_ref!(self.packet, 92, 4));
         let port = u16::from_be_bytes(*array_ref!(self.packet, 96, 2));
-        let announce_params = AnnounceParams::new(
+        let announce_params = AnnounceParams {
             info_hash,
             peer_id,
             port,
-            self.remote_ip,
-            if ip != [0; 4] { Some(ip.into()) } else { None },
+            remote_ip: self.remote_ip,
+            unsafe_ip: if ip != [0; 4] { Some(ip.into()) } else { None },
             uploaded,
             downloaded,
             left,
-            match event {
+            event: match event {
                 0 => Event::None,
                 1 => Event::Completed,
                 2 => Event::Started,
@@ -271,12 +271,12 @@ where
                 _ => Event::None,
             },
             num_want,
-            Some(key),
-            SystemTime::now()
+            key: Some(key),
+            time: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
-        );
+        };
         let params = parse_extensions(
             self.tracker.get_params_parser(),
             &self.packet[98..self.packet_len],

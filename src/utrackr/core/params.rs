@@ -110,23 +110,23 @@ impl<T: Sync + Send, P: ParamsParser<T>> TryInto<(AnnounceParams, T)>
         }
         match (self.info_hash, self.peer_id) {
             (Some(info_hash), Some(peer_id)) => Ok((
-                AnnounceParams::new(
+                AnnounceParams {
                     info_hash,
                     peer_id,
-                    self.port,
-                    self.remote_ip,
-                    self.unsafe_ip,
-                    self.uploaded.unwrap_or(0),
-                    self.downloaded.unwrap_or(0),
-                    self.left.unwrap_or(i64::MAX),
-                    self.event.unwrap_or(Event::None),
-                    self.num_want.unwrap_or(-1),
-                    self.key,
-                    SystemTime::now()
+                    port: self.port,
+                    remote_ip: self.remote_ip,
+                    unsafe_ip: self.unsafe_ip,
+                    uploaded: self.uploaded.unwrap_or(0),
+                    downloaded: self.downloaded.unwrap_or(0),
+                    left: self.left.unwrap_or(i64::MAX),
+                    event: self.event.unwrap_or(Event::None),
+                    num_want: self.num_want.unwrap_or(-1),
+                    key: self.key,
+                    time: SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .expect("are we traveling back in time?")
+                        .unwrap()
                         .as_secs(),
-                ),
+                },
                 self.extension.try_into()?,
             )),
             (None, _) => Err(Error::InvalidInfoHash),

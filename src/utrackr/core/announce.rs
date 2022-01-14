@@ -4,51 +4,21 @@ use crate::core::Event;
 
 #[derive(Debug)]
 pub struct AnnounceParams {
-    info_hash: [u8; 20],
-    peer_id: [u8; 20],
-    port: u16,
-    remote_ip: IpAddr,
-    unsafe_ip: Option<IpAddr>,
-    uploaded: i64,
-    downloaded: i64,
-    left: i64,
-    event: Event,
-    num_want: i32,
-    key: Option<u32>,
-    time: u64,
+    pub(crate) info_hash: [u8; 20],
+    pub(crate) peer_id: [u8; 20],
+    pub(crate) port: u16,
+    pub(crate) remote_ip: IpAddr,
+    pub(crate) unsafe_ip: Option<IpAddr>,
+    pub(crate) uploaded: i64,
+    pub(crate) downloaded: i64,
+    pub(crate) left: i64,
+    pub(crate) event: Event,
+    pub(crate) num_want: i32,
+    pub(crate) key: Option<u32>,
+    pub(crate) time: u64,
 }
 
 impl AnnounceParams {
-    #[inline]
-    pub(crate) fn new(
-        info_hash: [u8; 20],
-        peer_id: [u8; 20],
-        port: u16,
-        remote_ip: IpAddr,
-        unsafe_ip: Option<IpAddr>,
-        uploaded: i64,
-        downloaded: i64,
-        left: i64,
-        event: Event,
-        num_want: i32,
-        key: Option<u32>,
-        time: u64,
-    ) -> Self {
-        Self {
-            info_hash,
-            peer_id,
-            port,
-            remote_ip,
-            unsafe_ip,
-            uploaded,
-            downloaded,
-            left,
-            event,
-            num_want,
-            key,
-            time,
-        }
-    }
     /// The info hash specified by the announce request.
     #[inline]
     pub fn info_hash(&self) -> &[u8; 20] {
